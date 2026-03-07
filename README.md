@@ -145,20 +145,6 @@ For a clean, repeatable demo:
 
 NeuralTrace does **not** claim to show individual synapses or neurons — this is physically impossible with surface EEG. What it shows is **functional connectivity** changing in real time, which is the standard neuroscientific proxy for learning-driven network reorganization. Theta-gamma coupling and inter-regional coherence are well-studied EEG signatures of memory encoding (Helfrich & Knight, 2016; Fell & Axmacher, 2011).
 
----
-
-## Team
-
-Built at [Hackathon Name] — [Date]
-
-**Builders**
-- Tony
-- Rithvi
-- Swati
-
-**Guides & Mentors**
-- Rohan
-- Eric
 
 ---
 
