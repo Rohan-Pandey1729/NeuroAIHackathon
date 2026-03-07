@@ -3,14 +3,14 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 // ── International 10-20 electrode positions (unit sphere) ───────────────
 const ELECTRODE_POSITIONS: Record<string, [number, number, number]> = {
-  F3:  [-0.42,  0.74,  0.52],   // theta≈42°, phi≈-39°  (left frontal)
-  F4:  [ 0.42,  0.74,  0.52],   // theta≈42°, phi≈+39°  (right frontal)
-  C3:  [-0.71,  0.71,  0.00],   // theta≈45°, phi≈-90°  (left central)
-  C4:  [ 0.71,  0.71,  0.00],   // theta≈45°, phi≈+90°  (right central)
-  T5:  [-0.90,  0.31, -0.29],   // theta≈72°, phi≈-108° (left post-temporal)
-  T6:  [ 0.90,  0.31, -0.29],   // theta≈72°, phi≈+108° (right post-temporal)
-  O1:  [-0.29,  0.31, -0.90],   // theta≈72°, phi≈-162° (left occipital)
-  O2:  [ 0.29,  0.31, -0.90],   // theta≈72°, phi≈+162° (right occipital)
+  F3:  [-0.42,  0.74,  0.52],   // left frontal
+  F4:  [ 0.42,  0.74,  0.52],   // right frontal
+  C3:  [-0.71,  0.71,  0.00],   // left central
+  C4:  [ 0.71,  0.71,  0.00],   // right central
+  T5:  [-0.90,  0.31, -0.29],   // left post-temporal
+  T6:  [ 0.90,  0.31, -0.29],   // right post-temporal
+  O1:  [-0.29,  0.31, -0.90],   // left occipital
+  O2:  [ 0.29,  0.31, -0.90],   // right occipital
   A1:  [-0.95, -0.10,  0.00],   // left earlobe reference
   A2:  [ 0.95, -0.10,  0.00],   // right earlobe reference
 };
@@ -31,6 +31,7 @@ const REGION_COLORS: Record<string, THREE.Color> = {
 
 interface ElectrodeNode {
   surfaceDot: THREE.Mesh;
+  innerGlow: THREE.Mesh;
   light: THREE.PointLight;
   name: string;
   label: THREE.Sprite;
@@ -53,9 +54,9 @@ export class BrainScene {
   constructor(container: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     this.renderer.setPixelRatio(window.devicePixelRatio);
-    this.renderer.setClearColor(0x000000, 0);
+    this.renderer.setClearColor(0x0a0a1a, 1);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.3;
+    this.renderer.toneMappingExposure = 1.5;
     container.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
@@ -64,14 +65,21 @@ export class BrainScene {
     this.camera.position.set(0, 0.6, 3.5);
     this.camera.lookAt(0, 0.35, 0);
 
-    // Low ambient so the brain stays dark where there's no electrode activity
-    const ambient = new THREE.AmbientLight(0xffffff, 0.3);
+    // Environment: bright enough to see the glass brain shape clearly
+    const ambient = new THREE.AmbientLight(0xffffff, 0.6);
     this.scene.add(ambient);
 
-    // Soft directional so you can still see the brain shape
-    const keyLight = new THREE.DirectionalLight(0xffffff, 0.4);
-    keyLight.position.set(3, 4, 5);
+    const keyLight = new THREE.DirectionalLight(0xffffff, 1.0);
+    keyLight.position.set(3, 5, 5);
     this.scene.add(keyLight);
+
+    const fillLight = new THREE.DirectionalLight(0x8899bb, 0.4);
+    fillLight.position.set(-4, 2, -3);
+    this.scene.add(fillLight);
+
+    const rimLight = new THREE.DirectionalLight(0xaaccff, 0.3);
+    rimLight.position.set(0, -2, -5);
+    this.scene.add(rimLight);
 
     this.brainGroup = new THREE.Group();
     this.scene.add(this.brainGroup);
@@ -95,15 +103,23 @@ export class BrainScene {
       model.scale.setScalar(scale);
       model.position.sub(center.multiplyScalar(scale));
 
-      // Fully opaque brain — point lights above the surface paint colored patches
+      // Glass-like brain using MeshPhysicalMaterial with transmission.
+      // This renders the brain as a translucent solid — you can see the
+      // shape clearly (folds, structure) while also seeing the glowing
+      // regions inside.
       model.traverse((child) => {
         if ((child as THREE.Mesh).isMesh) {
           const mesh = child as THREE.Mesh;
-          mesh.material = new THREE.MeshStandardMaterial({
-            color: 0xd4b5b0,
-            roughness: 0.7,
+          mesh.material = new THREE.MeshPhysicalMaterial({
+            color: 0xe8d4d0,
+            roughness: 0.2,
             metalness: 0.0,
-            side: THREE.FrontSide,
+            transmission: 0.92,     // high transmission = glass-like
+            thickness: 1.5,         // refraction depth
+            ior: 1.3,               // index of refraction
+            side: THREE.DoubleSide,
+            transparent: true,
+            envMapIntensity: 0.5,
           });
         }
       });
@@ -115,33 +131,44 @@ export class BrainScene {
 
   private createElectrodes(brainScale: number): void {
     const surfaceRadius = 0.85 * brainScale;
+    const glowDepth = 0.50 * brainScale;  // deep inside the brain
 
     for (const [name, pos] of Object.entries(ELECTRODE_POSITIONS)) {
       const dir = new THREE.Vector3(pos[0], pos[1], pos[2]).normalize();
       const surfacePos = dir.clone().multiplyScalar(surfaceRadius);
+      const innerPos = dir.clone().multiplyScalar(glowDepth);
       const color = REGION_COLORS[name];
 
-      // Small colored dot sitting on the surface
+      // Small dot on the brain surface marking the electrode
       const dotGeo = new THREE.SphereGeometry(0.03, 12, 12);
       const dotMat = new THREE.MeshBasicMaterial({ color });
       const surfaceDot = new THREE.Mesh(dotGeo, dotMat);
       surfaceDot.position.copy(surfacePos);
 
-      // Point light just above the surface — shines down onto the brain,
-      // painting a colored patch on the opaque surface
-      const light = new THREE.PointLight(color, 0, 0.6);
-      const lightPos = dir.clone().multiplyScalar(surfaceRadius + 0.08);
-      light.position.copy(lightPos);
+      // Glowing sphere inside the brain — visible through the glass shell
+      const glowGeo = new THREE.SphereGeometry(0.1, 16, 16);
+      const glowMat = new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0,
+      });
+      const innerGlow = new THREE.Mesh(glowGeo, glowMat);
+      innerGlow.position.copy(innerPos);
 
-      // Label
+      // Point light inside to tint the glass from within
+      const light = new THREE.PointLight(color, 0, 1.0);
+      light.position.copy(innerPos);
+
+      // Label outside
       const label = this.createLabel(name, color);
       label.position.copy(dir.clone().multiplyScalar(surfaceRadius + 0.12));
 
-      this.brainGroup.add(surfaceDot);
+      this.brainGroup.add(innerGlow);
       this.brainGroup.add(light);
+      this.brainGroup.add(surfaceDot);
       this.brainGroup.add(label);
 
-      this.electrodes.set(name, { surfaceDot, light, name, label, intensity: 0 });
+      this.electrodes.set(name, { surfaceDot, innerGlow, light, name, label, intensity: 0 });
     }
   }
 
@@ -184,11 +211,16 @@ export class BrainScene {
       const t = node.intensity;
       const color = REGION_COLORS[node.name];
 
-      // Point light paints the brain surface in the region's color
-      node.light.intensity = t * 10.0;
-      node.light.distance = 0.3 + t * 0.8;
+      // Inner glow sphere — visible through the glass brain
+      const glowMat = node.innerGlow.material as THREE.MeshBasicMaterial;
+      glowMat.opacity = t * 0.95;
+      node.innerGlow.scale.setScalar(0.6 + t * 3.0);
 
-      // Dot brightens toward white when active
+      // Point light reinforces glow and tints the glass
+      node.light.intensity = t * 5.0;
+      node.light.distance = 0.5 + t * 1.0;
+
+      // Surface dot
       const dotMat = node.surfaceDot.material as THREE.MeshBasicMaterial;
       dotMat.color.copy(color).lerp(new THREE.Color(0xffffff), t * 0.5);
     }
