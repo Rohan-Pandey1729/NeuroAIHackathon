@@ -1,30 +1,42 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-// ── 10-20 electrode positions on a unit sphere ──────────────────────────
-// Approximate (theta, phi) mapped to 3D coords on a sphere of radius R.
-// Theta = polar angle from top (Cz), Phi = azimuthal from front (Fpz).
-// These positions follow the standard International 10-20 layout.
+// ── International 10-20 electrode positions (unit sphere) ───────────────
+// Computed from standard 10-20 spherical coordinates:
+//   theta = polar angle from vertex (Cz), phi = azimuth (0°=front, +90°=right)
+//   x = sin(theta)*sin(phi), y = cos(theta), z = sin(theta)*cos(phi)
+// Coordinate system: x=right, y=up, z=forward (toward nose)
 const ELECTRODE_POSITIONS: Record<string, [number, number, number]> = {
-  // Frontal
-  F3:  [-0.31,  0.59,  0.55],
-  F4:  [ 0.31,  0.59,  0.55],
-  // Central
-  C3:  [-0.55,  0.59,  0.00],
-  C4:  [ 0.55,  0.59,  0.00],
-  // Temporal
-  T5:  [-0.67,  0.25, -0.45],
-  T6:  [ 0.67,  0.25, -0.45],
-  // Occipital
-  O1:  [-0.31,  0.40, -0.70],
-  O2:  [ 0.31,  0.40, -0.70],
-  // Ear references (below and lateral)
-  A1:  [-0.78,  0.10,  0.00],
-  A2:  [ 0.78,  0.10,  0.00],
+  F3:  [-0.42,  0.74,  0.52],   // theta≈42°, phi≈-39°  (left frontal)
+  F4:  [ 0.42,  0.74,  0.52],   // theta≈42°, phi≈+39°  (right frontal)
+  C3:  [-0.71,  0.71,  0.00],   // theta≈45°, phi≈-90°  (left central)
+  C4:  [ 0.71,  0.71,  0.00],   // theta≈45°, phi≈+90°  (right central)
+  T5:  [-0.90,  0.31, -0.29],   // theta≈72°, phi≈-108° (left post-temporal)
+  T6:  [ 0.90,  0.31, -0.29],   // theta≈72°, phi≈+108° (right post-temporal)
+  O1:  [-0.29,  0.31, -0.90],   // theta≈72°, phi≈-162° (left occipital)
+  O2:  [ 0.29,  0.31, -0.90],   // theta≈72°, phi≈+162° (right occipital)
+  A1:  [-0.95, -0.10,  0.00],   // left earlobe reference
+  A2:  [ 0.95, -0.10,  0.00],   // right earlobe reference
 };
 
-const GLOW_COLOR_LOW  = new THREE.Color(0x1a1a4e);  // dark indigo (quiet)
-const GLOW_COLOR_HIGH = new THREE.Color(0x00ffff);   // cyan (active)
+// Per-region colors for each brain area
+const REGION_COLORS: Record<string, { low: THREE.Color; high: THREE.Color }> = {
+  // Frontal — blue/electric blue
+  F3: { low: new THREE.Color(0x1a237e), high: new THREE.Color(0x42a5f5) },
+  F4: { low: new THREE.Color(0x1a237e), high: new THREE.Color(0x42a5f5) },
+  // Central — green/lime
+  C3: { low: new THREE.Color(0x1b5e20), high: new THREE.Color(0x66bb6a) },
+  C4: { low: new THREE.Color(0x1b5e20), high: new THREE.Color(0x66bb6a) },
+  // Temporal — orange/amber
+  T5: { low: new THREE.Color(0x4e342e), high: new THREE.Color(0xffa726) },
+  T6: { low: new THREE.Color(0x4e342e), high: new THREE.Color(0xffa726) },
+  // Occipital — red/magenta
+  O1: { low: new THREE.Color(0x4a148c), high: new THREE.Color(0xef5350) },
+  O2: { low: new THREE.Color(0x4a148c), high: new THREE.Color(0xef5350) },
+  // Ear references — cool grey
+  A1: { low: new THREE.Color(0x263238), high: new THREE.Color(0xb0bec5) },
+  A2: { low: new THREE.Color(0x263238), high: new THREE.Color(0xb0bec5) },
+};
 
 interface ElectrodeNode {
   mesh: THREE.Mesh;
@@ -41,6 +53,7 @@ export class BrainScene {
   private brainGroup: THREE.Group;
   private electrodes: Map<string, ElectrodeNode> = new Map();
   private animId = 0;
+  private idleYRotation = 0;
 
   // Smoothed accelerometer orientation
   private targetRotX = 0;
@@ -53,6 +66,8 @@ export class BrainScene {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.setClearColor(0x000000, 0);
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.4;
     container.appendChild(this.renderer.domElement);
 
     // Scene
@@ -60,20 +75,28 @@ export class BrainScene {
 
     // Camera
     this.camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
-    this.camera.position.set(0, 0.5, 3.2);
-    this.camera.lookAt(0, 0.4, 0);
+    this.camera.position.set(0, 0.6, 3.5);
+    this.camera.lookAt(0, 0.35, 0);
 
-    // Lighting
-    const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+    // Lighting — brighter and more balanced to make brain visible
+    const ambient = new THREE.AmbientLight(0xffffff, 1.2);
     this.scene.add(ambient);
 
-    const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
-    dirLight.position.set(2, 3, 4);
-    this.scene.add(dirLight);
+    const keyLight = new THREE.DirectionalLight(0xffffff, 1.8);
+    keyLight.position.set(3, 4, 5);
+    this.scene.add(keyLight);
 
-    const backLight = new THREE.DirectionalLight(0x8888ff, 0.4);
-    backLight.position.set(-2, 1, -3);
-    this.scene.add(backLight);
+    const fillLight = new THREE.DirectionalLight(0x8899cc, 0.8);
+    fillLight.position.set(-3, 2, -2);
+    this.scene.add(fillLight);
+
+    const rimLight = new THREE.DirectionalLight(0xaaaaff, 0.6);
+    rimLight.position.set(0, -1, -4);
+    this.scene.add(rimLight);
+
+    // Subtle hemisphere light for natural fill
+    const hemiLight = new THREE.HemisphereLight(0xccccff, 0x444444, 0.5);
+    this.scene.add(hemiLight);
 
     // Group that holds brain + electrodes (rotated by accelerometer)
     this.brainGroup = new THREE.Group();
@@ -99,16 +122,21 @@ export class BrainScene {
       model.scale.setScalar(scale);
       model.position.sub(center.multiplyScalar(scale));
 
-      // Make brain semi-transparent so electrodes are visible
+      // Make brain semi-transparent but still visible
       model.traverse((child) => {
         if ((child as THREE.Mesh).isMesh) {
           const mesh = child as THREE.Mesh;
           const mat = mesh.material as THREE.MeshStandardMaterial;
           if (mat) {
             mat.transparent = true;
-            mat.opacity = 0.55;
+            mat.opacity = 0.7;
             mat.depthWrite = false;
             mat.side = THREE.DoubleSide;
+            mat.roughness = 0.6;
+            mat.metalness = 0.1;
+            // Slight pink/flesh emissive so it isn't pitch black
+            mat.emissive = new THREE.Color(0x331122);
+            mat.emissiveIntensity = 0.3;
           }
         }
       });
@@ -121,28 +149,30 @@ export class BrainScene {
   }
 
   private createElectrodes(brainScale: number): void {
-    const radius = 0.82 * brainScale;
+    const radius = 0.85 * brainScale;
 
     for (const [name, pos] of Object.entries(ELECTRODE_POSITIONS)) {
-      // Scale position to sit on the brain surface
-      const position = new THREE.Vector3(pos[0], pos[1], pos[2]).multiplyScalar(radius / 0.78);
+      const position = new THREE.Vector3(pos[0], pos[1], pos[2]).multiplyScalar(radius);
+      const colors = REGION_COLORS[name];
 
       // Solid electrode dot
-      const dotGeo = new THREE.SphereGeometry(0.035, 16, 16);
+      const dotGeo = new THREE.SphereGeometry(0.04, 16, 16);
       const dotMat = new THREE.MeshStandardMaterial({
         color: 0xffffff,
-        emissive: GLOW_COLOR_LOW,
-        emissiveIntensity: 0.5,
+        emissive: colors.low,
+        emissiveIntensity: 0.8,
+        roughness: 0.3,
+        metalness: 0.2,
       });
       const dotMesh = new THREE.Mesh(dotGeo, dotMat);
       dotMesh.position.copy(position);
 
       // Glow sphere (larger, additive)
-      const glowGeo = new THREE.SphereGeometry(0.08, 16, 16);
+      const glowGeo = new THREE.SphereGeometry(0.10, 16, 16);
       const glowMat = new THREE.MeshBasicMaterial({
-        color: GLOW_COLOR_LOW,
+        color: colors.low,
         transparent: true,
-        opacity: 0.25,
+        opacity: 0.2,
         depthWrite: false,
         blending: THREE.AdditiveBlending,
       });
@@ -150,9 +180,9 @@ export class BrainScene {
       glowMesh.position.copy(position);
 
       // Text label sprite
-      const label = this.createLabel(name);
+      const label = this.createLabel(name, colors.high);
       label.position.copy(position);
-      label.position.y += 0.07;
+      label.position.y += 0.09;
 
       this.brainGroup.add(dotMesh);
       this.brainGroup.add(glowMesh);
@@ -162,7 +192,7 @@ export class BrainScene {
     }
   }
 
-  private createLabel(text: string): THREE.Sprite {
+  private createLabel(text: string, color: THREE.Color): THREE.Sprite {
     const canvas = document.createElement('canvas');
     canvas.width = 128;
     canvas.height = 64;
@@ -170,11 +200,11 @@ export class BrainScene {
     ctx.font = 'bold 36px monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = `#${color.getHexString()}`;
     ctx.fillText(text, 64, 32);
 
     const texture = new THREE.CanvasTexture(canvas);
-    const mat = new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: 0.85 });
+    const mat = new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: 0.9 });
     const sprite = new THREE.Sprite(mat);
     sprite.scale.set(0.15, 0.075, 1);
     return sprite;
@@ -182,7 +212,6 @@ export class BrainScene {
 
   /** Update electrode glow from live EEG amplitudes */
   updateActivity(channelNames: string[], channelData: number[][]): void {
-    // Compute RMS amplitude per channel from the latest samples
     for (let i = 0; i < channelNames.length; i++) {
       const name = channelNames[i];
       const node = this.electrodes.get(name);
@@ -196,45 +225,47 @@ export class BrainScene {
       for (const v of samples) sumSq += v * v;
       const rms = Math.sqrt(sumSq / samples.length);
 
-      // Normalize: typical EEG is ~10-100 uV. Map to 0..1 range.
-      // Adjust these thresholds if needed for your signal range.
-      const normalized = Math.min(rms / 150, 1.0);
+      // Normalize — adjust for your signal range (uV after filtering)
+      const normalized = Math.min(rms / 100, 1.0);
 
       // Smooth toward target
-      node.intensity += (normalized - node.intensity) * 0.3;
+      node.intensity += (normalized - node.intensity) * 0.25;
     }
 
-    // Apply visual updates
+    // Apply visual updates per electrode with region-specific colors
     for (const node of this.electrodes.values()) {
       const t = node.intensity;
-      const color = GLOW_COLOR_LOW.clone().lerp(GLOW_COLOR_HIGH, t);
+      const colors = REGION_COLORS[node.name];
+
+      const color = colors.low.clone().lerp(colors.high, t);
 
       // Electrode dot
       const dotMat = node.mesh.material as THREE.MeshStandardMaterial;
       dotMat.emissive.copy(color);
-      dotMat.emissiveIntensity = 0.5 + t * 2.0;
+      dotMat.emissiveIntensity = 0.8 + t * 3.0;
 
       // Glow sphere
       const glowMat = node.glowMesh.material as THREE.MeshBasicMaterial;
       glowMat.color.copy(color);
-      glowMat.opacity = 0.15 + t * 0.6;
-      const glowScale = 1 + t * 1.5;
+      glowMat.opacity = 0.15 + t * 0.7;
+      const glowScale = 1.0 + t * 2.0;
       node.glowMesh.scale.setScalar(glowScale);
     }
   }
 
-  /** Update head orientation from Cyton accelerometer [x, y, z] */
+  /** Update head orientation from Cyton accelerometer [x, y, z].
+   *  Cyton on Ultracortex: X=left/right, Y=front/back, Z=up (~1g at rest). */
   updateAccel(accel: number[]): void {
     if (accel.length < 3) return;
     const [ax, ay, az] = accel;
 
-    // Convert accelerometer gravity vector to tilt angles
-    // Cyton accel is in g's (~1g down at rest)
-    const pitch = Math.atan2(ax, Math.sqrt(ay * ay + az * az));
-    const roll  = Math.atan2(ay, Math.sqrt(ax * ax + az * az));
+    // Forward/back tilt: Y-axis accel vs Z-axis gravity
+    // Tilting forward → ay increases → rotate model forward (negative X rotation)
+    this.targetRotX = -Math.atan2(ay, az);
 
-    this.targetRotX = pitch;
-    this.targetRotZ = -roll;
+    // Left/right tilt: X-axis accel vs Z-axis gravity
+    // Tilting right → ax increases → rotate model right (positive Z rotation)
+    this.targetRotZ = Math.atan2(ax, az);
   }
 
   private handleResize(container: HTMLElement): void {
@@ -260,7 +291,8 @@ export class BrainScene {
     this.brainGroup.rotation.z = this.currentRotZ;
 
     // Slow idle Y rotation so you can see all sides
-    this.brainGroup.rotation.y += 0.003;
+    this.idleYRotation += 0.003;
+    this.brainGroup.rotation.y = this.idleYRotation;
 
     this.renderer.render(this.scene, this.camera);
   };

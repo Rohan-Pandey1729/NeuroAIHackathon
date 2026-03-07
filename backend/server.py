@@ -4,6 +4,7 @@ import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import numpy as np
 from brainflow.board_shim import BoardShim, BrainFlowInputParams, BoardIds
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
@@ -51,8 +52,17 @@ async def stream_eeg():
     #         then ear references A1(left), A2(right).
     CHANNEL_NAMES_10_20 = ["F3", "F4", "C4", "C3", "T6", "T5", "O2", "O1", "A1", "A2"]
 
+    # FFT bandpass filter: rolling buffer per channel for clean filtering.
+    # We accumulate >=1s of data so the FFT has good frequency resolution,
+    # then extract only the newly arrived filtered samples.
+    FILTER_LOW = 1.0    # Hz — removes DC drift
+    FILTER_HIGH = 50.0  # Hz — removes line noise & high-freq artifacts
+    filter_buffers: list[np.ndarray] = [np.array([]) for _ in eeg_channels]
+    BUFFER_SIZE = int(sample_rate)  # 1 second of history
+
     print(f"Streaming EEG — {len(eeg_channels)} channels @ {sample_rate} Hz")
     print(f"10-20 channel mapping: {CHANNEL_NAMES_10_20[:len(eeg_channels)]}")
+    print(f"FFT bandpass filter: {FILTER_LOW}–{FILTER_HIGH} Hz")
 
     while streaming:
         await asyncio.sleep(1.0 / 30)  # ~30 pushes per second
@@ -61,8 +71,27 @@ async def stream_eeg():
         if num_samples == 0:
             continue
 
-        eeg = data[eeg_channels].tolist()
+        raw_eeg = data[eeg_channels]
         timestamps = data[timestamp_channel].tolist()
+
+        # FFT bandpass: accumulate into rolling buffer, filter, take new samples
+        filtered_channels = []
+        for ch_idx in range(len(eeg_channels)):
+            buf = np.concatenate([filter_buffers[ch_idx], raw_eeg[ch_idx]])
+            if len(buf) > BUFFER_SIZE:
+                buf = buf[-BUFFER_SIZE:]
+            filter_buffers[ch_idx] = buf
+
+            if len(buf) >= 16:
+                freqs = np.fft.rfftfreq(len(buf), d=1.0 / sample_rate)
+                spectrum = np.fft.rfft(buf)
+                spectrum[(freqs < FILTER_LOW) | (freqs > FILTER_HIGH)] = 0
+                filtered = np.fft.irfft(spectrum, n=len(buf))
+                filtered_channels.append(filtered[-num_samples:].tolist())
+            else:
+                filtered_channels.append(raw_eeg[ch_idx].tolist())
+
+        eeg = filtered_channels
 
         # Accelerometer: take last sample's [x, y, z] for head orientation
         accel = [data[ch][-1] for ch in accel_channels] if len(accel_channels) > 0 else []
