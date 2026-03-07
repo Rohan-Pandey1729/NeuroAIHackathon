@@ -35,7 +35,6 @@ const REGION_COLORS: Record<string, THREE.Color> = {
 
 interface ElectrodeNode {
   surfaceDot: THREE.Mesh;
-  innerGlow: THREE.Mesh;
   light: THREE.PointLight;
   name: string;
   label: THREE.Sprite;
@@ -100,7 +99,7 @@ export class BrainScene {
       model.scale.setScalar(scale);
       model.position.sub(center.multiplyScalar(scale));
 
-      // Semi-transparent brain — you can see internal glow through the surface
+      // Solid opaque brain — point lights inside illuminate the surface from within
       model.traverse((child) => {
         if ((child as THREE.Mesh).isMesh) {
           const mesh = child as THREE.Mesh;
@@ -108,16 +107,10 @@ export class BrainScene {
             color: 0xd4b5b0,
             roughness: 0.65,
             metalness: 0.05,
-            transparent: true,
-            opacity: 0.45,
             side: THREE.DoubleSide,
-            depthWrite: false,
           });
         }
       });
-
-      // Render brain last so internal glow shows through
-      model.renderOrder = 1;
 
       this.brainGroup.add(model);
       this.createElectrodes(scale);
@@ -126,13 +119,13 @@ export class BrainScene {
 
   private createElectrodes(brainScale: number): void {
     const surfaceRadius = 0.85 * brainScale;
-    // Place lights and glow deeper inside the brain
-    const innerRadius = 0.55 * brainScale;
+    // Lights sit just under the surface so they create colored patches on the opaque brain
+    const lightDepth = 0.75 * brainScale;
 
     for (const [name, pos] of Object.entries(ELECTRODE_POSITIONS)) {
       const dir = new THREE.Vector3(pos[0], pos[1], pos[2]).normalize();
       const surfacePos = dir.clone().multiplyScalar(surfaceRadius);
-      const innerPos = dir.clone().multiplyScalar(innerRadius);
+      const lightPos = dir.clone().multiplyScalar(lightDepth);
       const color = REGION_COLORS[name];
 
       // Small dot on the brain surface to mark electrode location
@@ -140,37 +133,21 @@ export class BrainScene {
       const dotMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 });
       const surfaceDot = new THREE.Mesh(dotGeo, dotMat);
       surfaceDot.position.copy(surfacePos);
-      surfaceDot.renderOrder = 0;
 
-      // Inner glow sphere — sits inside the brain, visible through transparent shell
-      const glowGeo = new THREE.SphereGeometry(0.12, 16, 16);
-      const glowMat = new THREE.MeshBasicMaterial({
-        color,
-        transparent: true,
-        opacity: 0,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-      });
-      const innerGlow = new THREE.Mesh(glowGeo, glowMat);
-      innerGlow.position.copy(innerPos);
-      innerGlow.renderOrder = 0;
-
-      // Point light inside the brain — illuminates the brain shell from within
-      const light = new THREE.PointLight(color, 0, 1.2);
-      light.position.copy(innerPos);
+      // Point light just under the surface — creates a colored glow patch on the brain
+      const light = new THREE.PointLight(color, 0, 1.0);
+      light.position.copy(lightPos);
 
       // Label just outside the surface
       const label = this.createLabel(name, color);
       label.position.copy(surfacePos);
       label.position.addScaledVector(dir, 0.1);
-      label.renderOrder = 2;
 
       this.brainGroup.add(surfaceDot);
-      this.brainGroup.add(innerGlow);
       this.brainGroup.add(light);
       this.brainGroup.add(label);
 
-      this.electrodes.set(name, { surfaceDot, innerGlow, light, name, label, intensity: 0 });
+      this.electrodes.set(name, { surfaceDot, light, name, label, intensity: 0 });
     }
   }
 
@@ -213,15 +190,9 @@ export class BrainScene {
       const t = node.intensity;
       const color = REGION_COLORS[node.name];
 
-      // Inner glow sphere — grows and brightens with activity
-      const glowMat = node.innerGlow.material as THREE.MeshBasicMaterial;
-      glowMat.opacity = t * 0.8;
-      const glowScale = 0.8 + t * 2.5;
-      node.innerGlow.scale.setScalar(glowScale);
-
-      // Point light inside brain — illuminates surrounding brain tissue
-      node.light.intensity = t * 6.0;
-      node.light.distance = 0.5 + t * 1.0;
+      // Point light under surface — creates colored glow patch on the brain
+      node.light.intensity = t * 8.0;
+      node.light.distance = 0.4 + t * 1.2;
 
       // Surface dot brightness
       const dotMat = node.surfaceDot.material as THREE.MeshBasicMaterial;
