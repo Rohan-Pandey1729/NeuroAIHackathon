@@ -19,7 +19,7 @@ const ELECTRODE_POSITIONS: Record<string, [number, number, number]> = {
   A2:  [ 0.95, -0.10,  0.00],   // right earlobe reference
 };
 
-// Per-region colors for each brain area
+// Per-region colors
 const REGION_COLORS: Record<string, THREE.Color> = {
   F3: new THREE.Color(0x42a5f5),  // Frontal — electric blue
   F4: new THREE.Color(0x42a5f5),
@@ -34,11 +34,12 @@ const REGION_COLORS: Record<string, THREE.Color> = {
 };
 
 interface ElectrodeNode {
-  dot: THREE.Mesh;
+  surfaceDot: THREE.Mesh;
+  innerGlow: THREE.Mesh;
   light: THREE.PointLight;
   name: string;
   label: THREE.Sprite;
-  intensity: number;   // 0..1 smoothed
+  intensity: number;
 }
 
 export class BrainScene {
@@ -56,35 +57,27 @@ export class BrainScene {
   private currentRotZ = 0;
 
   constructor(container: HTMLElement) {
-    // Renderer
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.setClearColor(0x000000, 0);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.2;
+    this.renderer.toneMappingExposure = 1.3;
     container.appendChild(this.renderer.domElement);
 
-    // Scene
     this.scene = new THREE.Scene();
 
-    // Camera
     this.camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
     this.camera.position.set(0, 0.6, 3.5);
     this.camera.lookAt(0, 0.35, 0);
 
-    // Base lighting — soft ambient so the brain is visible but dark regions stay dark
-    const ambient = new THREE.AmbientLight(0xffffff, 0.4);
+    // Subtle ambient — most light comes from electrode point lights
+    const ambient = new THREE.AmbientLight(0xffffff, 0.35);
     this.scene.add(ambient);
 
-    const keyLight = new THREE.DirectionalLight(0xffffff, 0.6);
+    const keyLight = new THREE.DirectionalLight(0xffffff, 0.5);
     keyLight.position.set(3, 4, 5);
     this.scene.add(keyLight);
 
-    const fillLight = new THREE.DirectionalLight(0x667799, 0.3);
-    fillLight.position.set(-3, 2, -2);
-    this.scene.add(fillLight);
-
-    // Group that holds brain + electrodes (rotated by accelerometer)
     this.brainGroup = new THREE.Group();
     this.scene.add(this.brainGroup);
 
@@ -98,7 +91,6 @@ export class BrainScene {
     loader.load('/brain.glb', (gltf) => {
       const model = gltf.scene;
 
-      // Compute bounding box to normalize size and center
       const box = new THREE.Box3().setFromObject(model);
       const size = box.getSize(new THREE.Vector3());
       const center = box.getCenter(new THREE.Vector3());
@@ -108,55 +100,77 @@ export class BrainScene {
       model.scale.setScalar(scale);
       model.position.sub(center.multiplyScalar(scale));
 
-      // Solid opaque brain material — pinkish grey, reacts to light
+      // Semi-transparent brain — you can see internal glow through the surface
       model.traverse((child) => {
         if ((child as THREE.Mesh).isMesh) {
           const mesh = child as THREE.Mesh;
           mesh.material = new THREE.MeshStandardMaterial({
-            color: 0xc4a4a0,       // pinkish-grey brain color
-            roughness: 0.75,
+            color: 0xd4b5b0,
+            roughness: 0.65,
             metalness: 0.05,
-            side: THREE.FrontSide,
+            transparent: true,
+            opacity: 0.45,
+            side: THREE.DoubleSide,
+            depthWrite: false,
           });
         }
       });
 
-      this.brainGroup.add(model);
+      // Render brain last so internal glow shows through
+      model.renderOrder = 1;
 
-      // Place electrode markers + point lights on the brain surface
+      this.brainGroup.add(model);
       this.createElectrodes(scale);
     });
   }
 
   private createElectrodes(brainScale: number): void {
-    const radius = 0.85 * brainScale;
+    const surfaceRadius = 0.85 * brainScale;
+    // Place lights and glow deeper inside the brain
+    const innerRadius = 0.55 * brainScale;
 
     for (const [name, pos] of Object.entries(ELECTRODE_POSITIONS)) {
-      const position = new THREE.Vector3(pos[0], pos[1], pos[2]).multiplyScalar(radius);
+      const dir = new THREE.Vector3(pos[0], pos[1], pos[2]).normalize();
+      const surfacePos = dir.clone().multiplyScalar(surfaceRadius);
+      const innerPos = dir.clone().multiplyScalar(innerRadius);
       const color = REGION_COLORS[name];
 
-      // Small marker dot on the brain surface
+      // Small dot on the brain surface to mark electrode location
       const dotGeo = new THREE.SphereGeometry(0.025, 12, 12);
-      const dotMat = new THREE.MeshBasicMaterial({ color });
-      const dot = new THREE.Mesh(dotGeo, dotMat);
-      dot.position.copy(position);
+      const dotMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 });
+      const surfaceDot = new THREE.Mesh(dotGeo, dotMat);
+      surfaceDot.position.copy(surfacePos);
+      surfaceDot.renderOrder = 0;
 
-      // Point light at electrode position — illuminates the brain surface
-      const light = new THREE.PointLight(color, 0, 0.8);
-      light.position.copy(position);
-      // Nudge light slightly outward so it shines down onto the surface
-      light.position.addScaledVector(position.clone().normalize(), 0.05);
+      // Inner glow sphere — sits inside the brain, visible through transparent shell
+      const glowGeo = new THREE.SphereGeometry(0.12, 16, 16);
+      const glowMat = new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      });
+      const innerGlow = new THREE.Mesh(glowGeo, glowMat);
+      innerGlow.position.copy(innerPos);
+      innerGlow.renderOrder = 0;
 
-      // Text label
+      // Point light inside the brain — illuminates the brain shell from within
+      const light = new THREE.PointLight(color, 0, 1.2);
+      light.position.copy(innerPos);
+
+      // Label just outside the surface
       const label = this.createLabel(name, color);
-      label.position.copy(position);
-      label.position.addScaledVector(position.clone().normalize(), 0.1);
+      label.position.copy(surfacePos);
+      label.position.addScaledVector(dir, 0.1);
+      label.renderOrder = 2;
 
-      this.brainGroup.add(dot);
+      this.brainGroup.add(surfaceDot);
+      this.brainGroup.add(innerGlow);
       this.brainGroup.add(light);
       this.brainGroup.add(label);
 
-      this.electrodes.set(name, { dot, light, name, label, intensity: 0 });
+      this.electrodes.set(name, { surfaceDot, innerGlow, light, name, label, intensity: 0 });
     }
   }
 
@@ -178,7 +192,6 @@ export class BrainScene {
     return sprite;
   }
 
-  /** Update electrode glow from live EEG amplitudes */
   updateActivity(channelNames: string[], channelData: number[][]): void {
     for (let i = 0; i < channelNames.length; i++) {
       const name = channelNames[i];
@@ -188,44 +201,39 @@ export class BrainScene {
       const samples = channelData[i];
       if (!samples || samples.length === 0) continue;
 
-      // RMS of latest chunk
       let sumSq = 0;
       for (const v of samples) sumSq += v * v;
       const rms = Math.sqrt(sumSq / samples.length);
 
-      // Normalize — adjust for your signal range (uV after filtering)
       const normalized = Math.min(rms / 100, 1.0);
-
-      // Smooth toward target
       node.intensity += (normalized - node.intensity) * 0.25;
     }
 
-    // Apply: drive point light intensity from EEG activity
     for (const node of this.electrodes.values()) {
       const t = node.intensity;
+      const color = REGION_COLORS[node.name];
 
-      // Point light illuminates the brain surface in this region's color
-      node.light.intensity = t * 5.0;
-      node.light.distance = 0.4 + t * 0.8;
+      // Inner glow sphere — grows and brightens with activity
+      const glowMat = node.innerGlow.material as THREE.MeshBasicMaterial;
+      glowMat.opacity = t * 0.8;
+      const glowScale = 0.8 + t * 2.5;
+      node.innerGlow.scale.setScalar(glowScale);
 
-      // Marker dot brightness
-      const dotMat = node.dot.material as THREE.MeshBasicMaterial;
-      const baseColor = REGION_COLORS[node.name];
-      // Lerp from dim to bright
-      dotMat.color.copy(baseColor).lerp(new THREE.Color(0xffffff), t * 0.5);
+      // Point light inside brain — illuminates surrounding brain tissue
+      node.light.intensity = t * 6.0;
+      node.light.distance = 0.5 + t * 1.0;
+
+      // Surface dot brightness
+      const dotMat = node.surfaceDot.material as THREE.MeshBasicMaterial;
+      dotMat.color.copy(color).lerp(new THREE.Color(0xffffff), t * 0.6);
+      dotMat.opacity = 0.4 + t * 0.6;
     }
   }
 
-  /** Update head orientation from Cyton accelerometer [x, y, z].
-   *  Cyton on Ultracortex: X=left/right, Y=front/back, Z=up (~1g at rest). */
   updateAccel(accel: number[]): void {
     if (accel.length < 3) return;
     const [ax, ay, az] = accel;
-
-    // Forward/back tilt: Y-axis accel vs Z-axis gravity
     this.targetRotX = -Math.atan2(ay, az);
-
-    // Left/right tilt: X-axis accel vs Z-axis gravity
     this.targetRotZ = Math.atan2(ax, az);
   }
 
@@ -243,14 +251,10 @@ export class BrainScene {
 
   private animate = (): void => {
     this.animId = requestAnimationFrame(this.animate);
-
-    // Smooth interpolation toward accelerometer target (no idle rotation)
     this.currentRotX += (this.targetRotX - this.currentRotX) * 0.08;
     this.currentRotZ += (this.targetRotZ - this.currentRotZ) * 0.08;
-
     this.brainGroup.rotation.x = this.currentRotX;
     this.brainGroup.rotation.z = this.currentRotZ;
-
     this.renderer.render(this.scene, this.camera);
   };
 
