@@ -31,7 +31,7 @@ OpenBCI Ultracortex Mark IV
   OpenBCI GUI (LSL stream)
           ↓
   Python Backend
-  ├── pylsl  — reads EEG stream
+  ├── brainflow  — reads EEG stream
   ├── scipy / MNE  — band power + coherence matrix (every ~500ms)
   └── websockets  — pushes JSON state to browser
           ↓
@@ -82,7 +82,7 @@ pip install -r requirements.txt
 
 **requirements.txt**
 ```
-pylsl
+brainflow
 numpy
 scipy
 mne
