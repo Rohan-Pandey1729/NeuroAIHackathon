@@ -42,23 +42,23 @@ def log_data():
     BoardShim.enable_dev_board_logger()
 
     params = BrainFlowInputParams()
-    params.ip_port = args.ip_port
-    params.serial_port = args.serial_port
-    params.mac_address = args.mac_address
-    params.other_info = args.other_info
-    params.serial_number = args.serial_number
-    params.ip_address = args.ip_address
-    params.ip_protocol = args.ip_protocol
-    params.timeout = args.timeout
-    params.file = args.file
-    params.master_board = args.master_board
-
-    print(args.board_id)
-
-    board = BoardShim(args.board_id, params)
+    # params.ip_port = args.ip_port
+    params.serial_port = "COM4"
+    # params.mac_address = args.mac_address
+    # params.other_info = args.other_info
+    # params.serial_number = args.serial_number
+    # params.ip_address = args.ip_address
+    # params.ip_protocol = args.ip_protocol
+    # params.timeout = args.timeout
+    # params.file = args.file
+    # params.master_board = args.master_board
+    board_id = 0
+    board = BoardShim(board_id, params)
     board.prepare_session()
     board.start_stream()
+
     time.sleep(10)
+    
     data = board.get_board_data()
     board.stop_stream()
     board.release_session()
