@@ -1,6 +1,7 @@
 import './style.css'
 import { onEegData } from './socket.ts'
 import type { EegMessage } from './socket.ts'
+import { BrainScene } from './brain3d.ts'
 
 const CHANNEL_COLORS = [
   '#ff6384', '#36a2eb', '#ffce56', '#4bc0c0',
@@ -13,12 +14,19 @@ app.innerHTML = `
   <h1>EEG Live Stream</h1>
   <div id="status">Connecting...</div>
   <div id="info"></div>
-  <div id="channels"></div>
+  <div id="main-layout">
+    <div id="brain-container"></div>
+    <div id="channels"></div>
+  </div>
 `;
 
 const statusEl = document.querySelector<HTMLDivElement>('#status')!;
 const infoEl = document.querySelector<HTMLDivElement>('#info')!;
 const channelsEl = document.querySelector<HTMLDivElement>('#channels')!;
+const brainContainer = document.querySelector<HTMLDivElement>('#brain-container')!;
+
+// Initialize 3D brain visualization
+const brainScene = new BrainScene(brainContainer);
 
 const DISPLAY_SAMPLES = 500;
 const channelBuffers: number[][] = [];
@@ -109,5 +117,13 @@ onEegData((data: EegMessage) => {
       channelBuffers[ch] = channelBuffers[ch].slice(-DISPLAY_SAMPLES);
     }
     drawChannel(ch, channelBuffers[ch]);
+  }
+
+  // Update 3D brain electrode glow from EEG activity
+  brainScene.updateActivity(data.channel_names ?? [], data.channels);
+
+  // Update head orientation from accelerometer
+  if (data.accel && data.accel.length >= 3) {
+    brainScene.updateAccel(data.accel);
   }
 });

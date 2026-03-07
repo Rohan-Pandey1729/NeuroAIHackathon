@@ -2,6 +2,7 @@ export interface EegMessage {
   type: "eeg";
   channels: number[][];
   channel_names: string[];  // International 10-20 electrode names (e.g. "F3", "C4", "O1")
+  accel: number[];          // Accelerometer [x, y, z] from Cyton IMU
   timestamps: number[];
   sample_rate: number;
   num_samples: number;

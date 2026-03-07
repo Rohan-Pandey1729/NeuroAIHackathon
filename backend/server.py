@@ -41,6 +41,7 @@ async def stream_eeg():
     """Continuously read EEG data from the board and broadcast to clients."""
     global streaming
     eeg_channels = BoardShim.get_eeg_channels(board.board_id)
+    accel_channels = BoardShim.get_accel_channels(board.board_id)
     timestamp_channel = BoardShim.get_timestamp_channel(board.board_id)
     sample_rate = BoardShim.get_sampling_rate(board.board_id)
 
@@ -63,10 +64,14 @@ async def stream_eeg():
         eeg = data[eeg_channels].tolist()
         timestamps = data[timestamp_channel].tolist()
 
+        # Accelerometer: take last sample's [x, y, z] for head orientation
+        accel = [data[ch][-1] for ch in accel_channels] if len(accel_channels) > 0 else []
+
         await broadcast({
             "type": "eeg",
             "channels": eeg,
             "channel_names": CHANNEL_NAMES_10_20[:len(eeg)],
+            "accel": accel,
             "timestamps": timestamps,
             "sample_rate": sample_rate,
             "num_samples": num_samples,
