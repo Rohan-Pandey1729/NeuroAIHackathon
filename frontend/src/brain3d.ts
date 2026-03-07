@@ -20,27 +20,22 @@ const ELECTRODE_POSITIONS: Record<string, [number, number, number]> = {
 };
 
 // Per-region colors for each brain area
-const REGION_COLORS: Record<string, { low: THREE.Color; high: THREE.Color }> = {
-  // Frontal — blue/electric blue
-  F3: { low: new THREE.Color(0x1a237e), high: new THREE.Color(0x42a5f5) },
-  F4: { low: new THREE.Color(0x1a237e), high: new THREE.Color(0x42a5f5) },
-  // Central — green/lime
-  C3: { low: new THREE.Color(0x1b5e20), high: new THREE.Color(0x66bb6a) },
-  C4: { low: new THREE.Color(0x1b5e20), high: new THREE.Color(0x66bb6a) },
-  // Temporal — orange/amber
-  T5: { low: new THREE.Color(0x4e342e), high: new THREE.Color(0xffa726) },
-  T6: { low: new THREE.Color(0x4e342e), high: new THREE.Color(0xffa726) },
-  // Occipital — red/magenta
-  O1: { low: new THREE.Color(0x4a148c), high: new THREE.Color(0xef5350) },
-  O2: { low: new THREE.Color(0x4a148c), high: new THREE.Color(0xef5350) },
-  // Ear references — cool grey
-  A1: { low: new THREE.Color(0x263238), high: new THREE.Color(0xb0bec5) },
-  A2: { low: new THREE.Color(0x263238), high: new THREE.Color(0xb0bec5) },
+const REGION_COLORS: Record<string, THREE.Color> = {
+  F3: new THREE.Color(0x42a5f5),  // Frontal — electric blue
+  F4: new THREE.Color(0x42a5f5),
+  C3: new THREE.Color(0x66bb6a),  // Central — green
+  C4: new THREE.Color(0x66bb6a),
+  T5: new THREE.Color(0xffa726),  // Temporal — amber
+  T6: new THREE.Color(0xffa726),
+  O1: new THREE.Color(0xef5350),  // Occipital — red/coral
+  O2: new THREE.Color(0xef5350),
+  A1: new THREE.Color(0xb0bec5),  // Ear references — cool grey
+  A2: new THREE.Color(0xb0bec5),
 };
 
 interface ElectrodeNode {
-  mesh: THREE.Mesh;
-  glowMesh: THREE.Mesh;
+  dot: THREE.Mesh;
+  light: THREE.PointLight;
   name: string;
   label: THREE.Sprite;
   intensity: number;   // 0..1 smoothed
@@ -53,7 +48,6 @@ export class BrainScene {
   private brainGroup: THREE.Group;
   private electrodes: Map<string, ElectrodeNode> = new Map();
   private animId = 0;
-  private idleYRotation = 0;
 
   // Smoothed accelerometer orientation
   private targetRotX = 0;
@@ -67,7 +61,7 @@ export class BrainScene {
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.setClearColor(0x000000, 0);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.4;
+    this.renderer.toneMappingExposure = 1.2;
     container.appendChild(this.renderer.domElement);
 
     // Scene
@@ -78,25 +72,17 @@ export class BrainScene {
     this.camera.position.set(0, 0.6, 3.5);
     this.camera.lookAt(0, 0.35, 0);
 
-    // Lighting — brighter and more balanced to make brain visible
-    const ambient = new THREE.AmbientLight(0xffffff, 1.2);
+    // Base lighting — soft ambient so the brain is visible but dark regions stay dark
+    const ambient = new THREE.AmbientLight(0xffffff, 0.4);
     this.scene.add(ambient);
 
-    const keyLight = new THREE.DirectionalLight(0xffffff, 1.8);
+    const keyLight = new THREE.DirectionalLight(0xffffff, 0.6);
     keyLight.position.set(3, 4, 5);
     this.scene.add(keyLight);
 
-    const fillLight = new THREE.DirectionalLight(0x8899cc, 0.8);
+    const fillLight = new THREE.DirectionalLight(0x667799, 0.3);
     fillLight.position.set(-3, 2, -2);
     this.scene.add(fillLight);
-
-    const rimLight = new THREE.DirectionalLight(0xaaaaff, 0.6);
-    rimLight.position.set(0, -1, -4);
-    this.scene.add(rimLight);
-
-    // Subtle hemisphere light for natural fill
-    const hemiLight = new THREE.HemisphereLight(0xccccff, 0x444444, 0.5);
-    this.scene.add(hemiLight);
 
     // Group that holds brain + electrodes (rotated by accelerometer)
     this.brainGroup = new THREE.Group();
@@ -122,28 +108,22 @@ export class BrainScene {
       model.scale.setScalar(scale);
       model.position.sub(center.multiplyScalar(scale));
 
-      // Make brain semi-transparent but still visible
+      // Solid opaque brain material — pinkish grey, reacts to light
       model.traverse((child) => {
         if ((child as THREE.Mesh).isMesh) {
           const mesh = child as THREE.Mesh;
-          const mat = mesh.material as THREE.MeshStandardMaterial;
-          if (mat) {
-            mat.transparent = true;
-            mat.opacity = 0.7;
-            mat.depthWrite = false;
-            mat.side = THREE.DoubleSide;
-            mat.roughness = 0.6;
-            mat.metalness = 0.1;
-            // Slight pink/flesh emissive so it isn't pitch black
-            mat.emissive = new THREE.Color(0x331122);
-            mat.emissiveIntensity = 0.3;
-          }
+          mesh.material = new THREE.MeshStandardMaterial({
+            color: 0xc4a4a0,       // pinkish-grey brain color
+            roughness: 0.75,
+            metalness: 0.05,
+            side: THREE.FrontSide,
+          });
         }
       });
 
       this.brainGroup.add(model);
 
-      // Place electrodes relative to the brain bounding box
+      // Place electrode markers + point lights on the brain surface
       this.createElectrodes(scale);
     });
   }
@@ -153,42 +133,30 @@ export class BrainScene {
 
     for (const [name, pos] of Object.entries(ELECTRODE_POSITIONS)) {
       const position = new THREE.Vector3(pos[0], pos[1], pos[2]).multiplyScalar(radius);
-      const colors = REGION_COLORS[name];
+      const color = REGION_COLORS[name];
 
-      // Solid electrode dot
-      const dotGeo = new THREE.SphereGeometry(0.04, 16, 16);
-      const dotMat = new THREE.MeshStandardMaterial({
-        color: 0xffffff,
-        emissive: colors.low,
-        emissiveIntensity: 0.8,
-        roughness: 0.3,
-        metalness: 0.2,
-      });
-      const dotMesh = new THREE.Mesh(dotGeo, dotMat);
-      dotMesh.position.copy(position);
+      // Small marker dot on the brain surface
+      const dotGeo = new THREE.SphereGeometry(0.025, 12, 12);
+      const dotMat = new THREE.MeshBasicMaterial({ color });
+      const dot = new THREE.Mesh(dotGeo, dotMat);
+      dot.position.copy(position);
 
-      // Glow sphere (larger, additive)
-      const glowGeo = new THREE.SphereGeometry(0.10, 16, 16);
-      const glowMat = new THREE.MeshBasicMaterial({
-        color: colors.low,
-        transparent: true,
-        opacity: 0.2,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-      });
-      const glowMesh = new THREE.Mesh(glowGeo, glowMat);
-      glowMesh.position.copy(position);
+      // Point light at electrode position — illuminates the brain surface
+      const light = new THREE.PointLight(color, 0, 0.8);
+      light.position.copy(position);
+      // Nudge light slightly outward so it shines down onto the surface
+      light.position.addScaledVector(position.clone().normalize(), 0.05);
 
-      // Text label sprite
-      const label = this.createLabel(name, colors.high);
+      // Text label
+      const label = this.createLabel(name, color);
       label.position.copy(position);
-      label.position.y += 0.09;
+      label.position.addScaledVector(position.clone().normalize(), 0.1);
 
-      this.brainGroup.add(dotMesh);
-      this.brainGroup.add(glowMesh);
+      this.brainGroup.add(dot);
+      this.brainGroup.add(light);
       this.brainGroup.add(label);
 
-      this.electrodes.set(name, { mesh: dotMesh, glowMesh, name, label, intensity: 0 });
+      this.electrodes.set(name, { dot, light, name, label, intensity: 0 });
     }
   }
 
@@ -232,24 +200,19 @@ export class BrainScene {
       node.intensity += (normalized - node.intensity) * 0.25;
     }
 
-    // Apply visual updates per electrode with region-specific colors
+    // Apply: drive point light intensity from EEG activity
     for (const node of this.electrodes.values()) {
       const t = node.intensity;
-      const colors = REGION_COLORS[node.name];
 
-      const color = colors.low.clone().lerp(colors.high, t);
+      // Point light illuminates the brain surface in this region's color
+      node.light.intensity = t * 5.0;
+      node.light.distance = 0.4 + t * 0.8;
 
-      // Electrode dot
-      const dotMat = node.mesh.material as THREE.MeshStandardMaterial;
-      dotMat.emissive.copy(color);
-      dotMat.emissiveIntensity = 0.8 + t * 3.0;
-
-      // Glow sphere
-      const glowMat = node.glowMesh.material as THREE.MeshBasicMaterial;
-      glowMat.color.copy(color);
-      glowMat.opacity = 0.15 + t * 0.7;
-      const glowScale = 1.0 + t * 2.0;
-      node.glowMesh.scale.setScalar(glowScale);
+      // Marker dot brightness
+      const dotMat = node.dot.material as THREE.MeshBasicMaterial;
+      const baseColor = REGION_COLORS[node.name];
+      // Lerp from dim to bright
+      dotMat.color.copy(baseColor).lerp(new THREE.Color(0xffffff), t * 0.5);
     }
   }
 
@@ -260,11 +223,9 @@ export class BrainScene {
     const [ax, ay, az] = accel;
 
     // Forward/back tilt: Y-axis accel vs Z-axis gravity
-    // Tilting forward → ay increases → rotate model forward (negative X rotation)
     this.targetRotX = -Math.atan2(ay, az);
 
     // Left/right tilt: X-axis accel vs Z-axis gravity
-    // Tilting right → ax increases → rotate model right (positive Z rotation)
     this.targetRotZ = Math.atan2(ax, az);
   }
 
@@ -283,16 +244,12 @@ export class BrainScene {
   private animate = (): void => {
     this.animId = requestAnimationFrame(this.animate);
 
-    // Smooth interpolation toward target rotation
+    // Smooth interpolation toward accelerometer target (no idle rotation)
     this.currentRotX += (this.targetRotX - this.currentRotX) * 0.08;
     this.currentRotZ += (this.targetRotZ - this.currentRotZ) * 0.08;
 
     this.brainGroup.rotation.x = this.currentRotX;
     this.brainGroup.rotation.z = this.currentRotZ;
-
-    // Slow idle Y rotation so you can see all sides
-    this.idleYRotation += 0.003;
-    this.brainGroup.rotation.y = this.idleYRotation;
 
     this.renderer.render(this.scene, this.camera);
   };
