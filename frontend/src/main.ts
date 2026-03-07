@@ -5,6 +5,7 @@ import type { EegMessage } from './socket.ts'
 const CHANNEL_COLORS = [
   '#ff6384', '#36a2eb', '#ffce56', '#4bc0c0',
   '#9966ff', '#ff9f40', '#c9cbcf', '#7bc043',
+  '#e6194b', '#3cb44b',
 ];
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
@@ -22,8 +23,14 @@ const channelsEl = document.querySelector<HTMLDivElement>('#channels')!;
 const DISPLAY_SAMPLES = 500;
 const channelBuffers: number[][] = [];
 
-function renderChannels(numChannels: number): void {
-  if (channelsEl.children.length === numChannels) return;
+// Current 10-20 channel names from the server
+let currentChannelNames: string[] = [];
+
+function renderChannels(numChannels: number, channelNames: string[]): void {
+  // Re-render if channel count or names changed
+  const namesChanged = channelNames.some((n, i) => n !== currentChannelNames[i]);
+  if (channelsEl.children.length === numChannels && !namesChanged) return;
+  currentChannelNames = [...channelNames];
 
   channelsEl.innerHTML = '';
   for (let i = 0; i < numChannels; i++) {
@@ -33,7 +40,8 @@ function renderChannels(numChannels: number): void {
     const label = document.createElement('span');
     label.className = 'channel-label';
     label.style.color = CHANNEL_COLORS[i % CHANNEL_COLORS.length];
-    label.textContent = `CH${i + 1}`;
+    // Use 10-20 electrode name from server, fall back to generic label
+    label.textContent = channelNames[i] ?? `CH${i + 1}`;
 
     const canvas = document.createElement('canvas');
     canvas.id = `ch-${i}`;
@@ -91,7 +99,7 @@ onEegData((data: EegMessage) => {
   statusEl.className = 'connected';
   infoEl.textContent = `${data.channels.length} channels @ ${data.sample_rate} Hz | ${data.num_samples} samples`;
 
-  renderChannels(data.channels.length);
+  renderChannels(data.channels.length, data.channel_names ?? []);
 
   for (let ch = 0; ch < data.channels.length; ch++) {
     if (!channelBuffers[ch]) channelBuffers[ch] = [];

@@ -44,7 +44,14 @@ async def stream_eeg():
     timestamp_channel = BoardShim.get_timestamp_channel(board.board_id)
     sample_rate = BoardShim.get_sampling_rate(board.board_id)
 
+    # International 10-20 electrode names, ordered by Cyton pin (N1P → N8P).
+    # Wiring: N1P=F3(grey), N2P=F4(purple), N3P=C4(blue), N4P=C3(green),
+    #         N5P=T6(yellow), N6P=T5(orange), N7P=O2(red), N8P=O1(brown),
+    #         then ear references A1(left), A2(right).
+    CHANNEL_NAMES_10_20 = ["F3", "F4", "C4", "C3", "T6", "T5", "O2", "O1", "A1", "A2"]
+
     print(f"Streaming EEG — {len(eeg_channels)} channels @ {sample_rate} Hz")
+    print(f"10-20 channel mapping: {CHANNEL_NAMES_10_20[:len(eeg_channels)]}")
 
     while streaming:
         await asyncio.sleep(1.0 / 30)  # ~30 pushes per second
@@ -59,6 +66,7 @@ async def stream_eeg():
         await broadcast({
             "type": "eeg",
             "channels": eeg,
+            "channel_names": CHANNEL_NAMES_10_20[:len(eeg)],
             "timestamps": timestamps,
             "sample_rate": sample_rate,
             "num_samples": num_samples,
