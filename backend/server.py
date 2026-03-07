@@ -1,30 +1,41 @@
 import argparse
 import time
+from pathlib import Path
+
 from brainflow.board_shim import BoardShim, BrainFlowInputParams, BoardIds
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+import uvicorn
+
+app = FastAPI()
+
+# Connected WebSocket clients
+connected_clients: list[WebSocket] = []
+
+frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
 
 
+@app.get("/")
+async def index():
+    return FileResponse(frontend_dir / "index.html")
 
 
-import logging
-from flask import Flask
-from flask_socketio import SocketIO, send, emit
+@app.websocket("/ws")
+async def websocket_endpoint(ws: WebSocket):
+    await ws.accept()
+    connected_clients.append(ws)
+    print("Connected!")
+    try:
+        while True:
+            await ws.receive_text()
+    except WebSocketDisconnect:
+        connected_clients.remove(ws)
+        print("Disconnected")
 
-# Set the flask app to serves static files from the serverFiles directory
-app = Flask(__name__, static_folder="../frontend", static_url_path="") 
-socketio = SocketIO(app, cors_allowed_origins="*")
 
-# Disable request logging
-log = logging.getLogger('werkzeug')
-log.setLevel(logging.ERROR)
-
-# Route the index.html file
-@app.route('/')
-def index():
-    return app.send_static_file('index.html')
-
-@socketio.on('connect')
-def handle_message(data):
-    print('Connected!')
+# Serve static frontend files (must be mounted after routes)
+app.mount("/", StaticFiles(directory=str(frontend_dir)), name="frontend")
 
 
 def log_data():
@@ -46,20 +57,18 @@ def log_data():
 
     board = BoardShim(args.board_id, params)
     board.prepare_session()
-    board.start_stream ()
+    board.start_stream()
     time.sleep(10)
-    # data = board.get_current_board_data (256) # get latest 256 packages or less, doesnt remove them from internal buffer
-    data = board.get_board_data()  # get all data and remove it from internal buffer
+    data = board.get_board_data()
     board.stop_stream()
     board.release_session()
 
     print(data)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    # use docs to check which parameters are required for specific board, e.g. for Cyton - set serial port
     parser.add_argument('--timeout', type=int, help='timeout for device discovery or connection', required=False,
                         default=0)
     parser.add_argument('--ip-port', type=int, help='ip port', required=False, default=0)
@@ -77,5 +86,5 @@ if __name__ == '__main__':
                         required=False, default=BoardIds.NO_BOARD)
     args = parser.parse_args()
 
-    print("Serving on http://127.0.0.1:5000")
-    socketio.run(app)
+    print("Serving on http://127.0.0.1:8000")
+    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="error")
