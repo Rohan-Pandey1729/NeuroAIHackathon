@@ -35,6 +35,7 @@ const REGION_COLORS: Record<string, THREE.Color> = {
 
 interface ElectrodeNode {
   surfaceDot: THREE.Mesh;
+  innerGlow: THREE.Mesh;
   light: THREE.PointLight;
   name: string;
   label: THREE.Sprite;
@@ -69,13 +70,17 @@ export class BrainScene {
     this.camera.position.set(0, 0.6, 3.5);
     this.camera.lookAt(0, 0.35, 0);
 
-    // Subtle ambient — most light comes from electrode point lights
-    const ambient = new THREE.AmbientLight(0xffffff, 0.35);
+    // Moderate ambient + key light so the brain shape is clearly visible
+    const ambient = new THREE.AmbientLight(0xffffff, 0.5);
     this.scene.add(ambient);
 
-    const keyLight = new THREE.DirectionalLight(0xffffff, 0.5);
+    const keyLight = new THREE.DirectionalLight(0xffffff, 0.7);
     keyLight.position.set(3, 4, 5);
     this.scene.add(keyLight);
+
+    const fillLight = new THREE.DirectionalLight(0x667799, 0.3);
+    fillLight.position.set(-3, 2, -2);
+    this.scene.add(fillLight);
 
     this.brainGroup = new THREE.Group();
     this.scene.add(this.brainGroup);
@@ -99,7 +104,8 @@ export class BrainScene {
       model.scale.setScalar(scale);
       model.position.sub(center.multiplyScalar(scale));
 
-      // Solid opaque brain — point lights inside illuminate the surface from within
+      // Semi-transparent brain shell: visible shape but you can see the
+      // internal glow spheres shining through from inside.
       model.traverse((child) => {
         if ((child as THREE.Mesh).isMesh) {
           const mesh = child as THREE.Mesh;
@@ -107,8 +113,13 @@ export class BrainScene {
             color: 0xd4b5b0,
             roughness: 0.65,
             metalness: 0.05,
+            transparent: true,
+            opacity: 0.6,
             side: THREE.DoubleSide,
+            depthWrite: false,
           });
+          // Render the shell LAST so inner glow objects show through
+          mesh.renderOrder = 10;
         }
       });
 
@@ -119,35 +130,51 @@ export class BrainScene {
 
   private createElectrodes(brainScale: number): void {
     const surfaceRadius = 0.85 * brainScale;
-    // Lights sit just under the surface so they create colored patches on the opaque brain
-    const lightDepth = 0.75 * brainScale;
+    // Inner glow sits halfway in — deep enough to look "inside" the brain
+    const glowDepth = 0.55 * brainScale;
 
     for (const [name, pos] of Object.entries(ELECTRODE_POSITIONS)) {
       const dir = new THREE.Vector3(pos[0], pos[1], pos[2]).normalize();
       const surfacePos = dir.clone().multiplyScalar(surfaceRadius);
-      const lightPos = dir.clone().multiplyScalar(lightDepth);
+      const innerPos = dir.clone().multiplyScalar(glowDepth);
       const color = REGION_COLORS[name];
 
       // Small dot on the brain surface to mark electrode location
       const dotGeo = new THREE.SphereGeometry(0.025, 12, 12);
-      const dotMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 });
+      const dotMat = new THREE.MeshBasicMaterial({ color });
       const surfaceDot = new THREE.Mesh(dotGeo, dotMat);
       surfaceDot.position.copy(surfacePos);
+      surfaceDot.renderOrder = 11; // on top of the shell
 
-      // Point light just under the surface — creates a colored glow patch on the brain
-      const light = new THREE.PointLight(color, 0, 1.0);
-      light.position.copy(lightPos);
+      // Glowing sphere inside the brain — visible through the semi-transparent shell
+      const glowGeo = new THREE.SphereGeometry(0.12, 16, 16);
+      const glowMat = new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0,          // starts invisible, driven by EEG signal
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      const innerGlow = new THREE.Mesh(glowGeo, glowMat);
+      innerGlow.position.copy(innerPos);
+      innerGlow.renderOrder = 0; // rendered before the shell
+
+      // Point light at glow position — also tints the inside of the shell
+      const light = new THREE.PointLight(color, 0, 1.2);
+      light.position.copy(innerPos);
 
       // Label just outside the surface
       const label = this.createLabel(name, color);
       label.position.copy(surfacePos);
       label.position.addScaledVector(dir, 0.1);
+      label.renderOrder = 12;
 
-      this.brainGroup.add(surfaceDot);
+      this.brainGroup.add(innerGlow);
       this.brainGroup.add(light);
+      this.brainGroup.add(surfaceDot);
       this.brainGroup.add(label);
 
-      this.electrodes.set(name, { surfaceDot, light, name, label, intensity: 0 });
+      this.electrodes.set(name, { surfaceDot, innerGlow, light, name, label, intensity: 0 });
     }
   }
 
@@ -190,14 +217,18 @@ export class BrainScene {
       const t = node.intensity;
       const color = REGION_COLORS[node.name];
 
-      // Point light under surface — creates colored glow patch on the brain
-      node.light.intensity = t * 8.0;
-      node.light.distance = 0.4 + t * 1.2;
+      // Inner glow — grows and brightens with activity, visible through shell
+      const glowMat = node.innerGlow.material as THREE.MeshBasicMaterial;
+      glowMat.opacity = t * 0.9;
+      node.innerGlow.scale.setScalar(0.8 + t * 3.0);
 
-      // Surface dot brightness
+      // Point light reinforces the glow and tints the shell from inside
+      node.light.intensity = t * 6.0;
+      node.light.distance = 0.5 + t * 1.0;
+
+      // Surface dot
       const dotMat = node.surfaceDot.material as THREE.MeshBasicMaterial;
-      dotMat.color.copy(color).lerp(new THREE.Color(0xffffff), t * 0.6);
-      dotMat.opacity = 0.4 + t * 0.6;
+      dotMat.color.copy(color).lerp(new THREE.Color(0xffffff), t * 0.5);
     }
   }
 
