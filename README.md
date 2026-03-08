@@ -48,7 +48,8 @@ OpenBCI Cyton Board (8 channels)
           |
   Browser Frontend (Vite + TypeScript + Three.js)
   ├── brain3d.ts      — 3D brain mesh, electrode glow shader, click raycasting
-  ├── neural-anim.ts  — Neural connection animation popup with edu annotations
+  ├── neural-anim.ts  — 3D neural animation popup (Three.js) with edu annotations
+  ├── neuro-model.ts  — Biophysical EEG forward/inverse model (4-sphere volume conductor)
   ├── main.ts         — EEG chart rendering, smooth sample interpolation
   ├── recorder-ui.ts  — Recording session UI
   ├── socket.ts       — WebSocket client
@@ -91,7 +92,8 @@ NeuralTrace/
 │   ├── src/
 │   │   ├── main.ts        # App entry: EEG charts with Y-axis, smooth interpolation
 │   │   ├── brain3d.ts     # Three.js 3D brain, electrode glow shader, click detection
-│   │   ├── neural-anim.ts # Neural connection animation popup + educational annotations
+│   │   ├── neural-anim.ts # 3D neural animation popup (Three.js) with edu annotations
+│   │   ├── neuro-model.ts # Biophysical EEG forward/inverse model (4-sphere volume conductor)
 │   │   ├── recorder-ui.ts # Recording session UI panel
 │   │   ├── socket.ts      # WebSocket client
 │   │   ├── api.ts         # REST API client
@@ -186,15 +188,89 @@ Score = 0.30 * frontal_theta
 
 ## Interactive Neural Visualization
 
-Clicking a glowing electrode on the 3D brain opens an animated popup showing neural connections forming in that region. The animation includes:
+Clicking a glowing electrode on the 3D brain opens a full 3D animated popup (with orbit controls for rotation/zoom) showing neural connections forming in that region. The animation includes:
 
-- **Neurons (soma)** — glowing cell bodies that expand when receiving a signal
+- **Neurons (soma)** — glowing cell bodies that expand when receiving a signal; count and size are region-specific (see Biophysical Forward Model below)
 - **Dendrites** — branching input fibers growing outward from each neuron
 - **Axons** — connection lines between neurons carrying signals
 - **Action potentials** — glowing particles traveling along axons; their speed is driven by the live EEG signal intensity from the clicked electrode
 - **Synapses** — junctions where connections form between neurons, shown as a flash of light
 
 The popup also displays educational information about the brain region (e.g., frontal lobe's role in planning and memory, temporal lobe's role in auditory processing).
+
+---
+
+## Biophysical Forward Model
+
+The visualization pipeline is grounded in a biophysical EEG forward/inverse model implemented in `neuro-model.ts`. This converts raw scalp voltage into an estimate of the synchronously active neural population under each electrode, which in turn drives the rendered neuron count and soma size in the 3D animation.
+
+### 4-Sphere Volume Conductor
+
+We model the head as four concentric conducting spheres (Nunez & Srinivasan, 2006, Table 1.3):
+
+| Layer | Radius (m) | Conductivity (S/m) |
+|-------|-----------|---------------------|
+| Brain (cortical surface) | 0.080 | 0.33 |
+| CSF | 0.082 | 1.0 |
+| Skull | 0.088 | 0.0042 |
+| Scalp | 0.092 | 0.33 |
+
+The skull is ~80x less conductive than brain tissue, which is the dominant source of EEG signal attenuation at the scalp.
+
+### Forward/Inverse Equation
+
+The forward model relates scalp voltage to neural activity:
+
+```
+V_scalp = G × n × q
+```
+
+where **V** is scalp voltage (V), **G** is the lead field gain (V per A·m) from volume conductor geometry, **n** is the number of synchronously active pyramidal neurons, and **q** is the single-neuron PSP dipole moment (~1 pA·m; Murakami & Okada, 2006). We invert this to estimate the active population:
+
+```
+n = V / (G × q)
+```
+
+### Lead Field Values
+
+Effective lead field G (V/(A·m)) per electrode, derived from 4-sphere numerical solutions (Rush & Driscoll, 1968) for radial dipoles at the cortical surface:
+
+| Electrode | G | Notes |
+|-----------|---|-------|
+| F3/F4 | 28 | Frontal convexity — good radial alignment |
+| C3/C4 | 32 | Vertex — most radial orientation, shortest skull path |
+| T3/T4 | 22 | Lateral — thin temporal bone but more tangential dipoles |
+| P3/P4 | 30 | Posterior convexity — good radial alignment |
+| A1/A2 | 10 | Ear references — minimal cortical sensitivity |
+
+### Cortical Neuron Density
+
+Neuron density (per mm² of cortical surface, all 6 layers) varies by region (Rockel et al., 1980; Collins et al., 2010; Herculano-Houzel, 2009):
+
+| Region | Density (neurons/mm²) | Notes |
+|--------|----------------------|-------|
+| Prefrontal (F3/F4) | 105,000 | Dense small pyramidals |
+| Motor (C3/C4) | 62,000 | Sparse — giant Betz cells |
+| Temporal (T3/T4) | 95,000 | Dense — auditory/memory |
+| Parietal (P3/P4) | 85,000 | Medium-high density |
+
+Each electrode's sensitivity footprint covers ~600 mm² of cortical surface.
+
+### Soma Diameter Variation
+
+Layer V pyramidal neurons generate most of the EEG signal due to their long apical dendrites oriented perpendicular to the cortical surface. Their soma diameter varies dramatically:
+
+- **Motor cortex (C3/C4):** Betz cells up to 35 µm — among the largest neurons in the human nervous system
+- **Prefrontal (F3/F4):** ~18 µm standard pyramidals
+- **Temporal (T3/T4):** ~16 µm slightly smaller pyramidals
+- **Parietal (P3/P4):** ~20 µm medium-sized pyramidals
+
+### Mapping to the Visualization
+
+The forward model output drives two rendering parameters:
+
+1. **Rendered neuron count** (8–22 per popup): linearly scaled from cortical density, so prefrontal regions show the most neurons (~22) and motor cortex the fewest (~8).
+2. **Soma size scale**: normalized to the standard 18 µm pyramidal, so motor cortex Betz cells render at ~2× the diameter of frontal pyramidals.
 
 ---
 

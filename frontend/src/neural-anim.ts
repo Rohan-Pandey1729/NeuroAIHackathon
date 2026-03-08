@@ -1,10 +1,15 @@
-// Neural connection formation animation popup
+// Neural connection formation animation popup — 3D Three.js version
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import {
   estimateNeuralPopulation,
   formatNeuronCount,
   CONDUCTIVITY,
   type NeuralEstimate,
 } from './neuro-model.ts';
+
+/* ─── Constants ─── */
 
 const REGION_LABELS: Record<string, string> = {
   F3: 'Left Frontal', F4: 'Right Frontal',
@@ -27,72 +32,101 @@ const REGION_INFO: Record<string, string> = {
   A2: 'Ear Reference (A2) — The right earlobe electrode serves as an electrically neutral reference point for measuring voltage differences across scalp electrodes.',
 };
 
-interface Vec2 { x: number; y: number }
+/* ─── Data structures ─── */
 
-interface NeuronNode {
-  pos: Vec2;
+interface NeuronNode3D {
+  pos: THREE.Vector3;
   radius: number;
   phase: number;
   appearAt: number;
-  lastFire: number; // time of last action-potential arrival
+  lastFire: number;
+  core: THREE.Mesh;
+  glow: THREE.Sprite;
+  baseScale: number;
 }
 
-interface DendriteSeg {
-  points: Vec2[];
-  totalLen: number;
+interface DendriteSeg3D {
+  line: THREE.Line;
+  totalPoints: number;
   growStart: number;
-  growRate: number;
+  growRate: number; // points per second
 }
 
-interface Conn {
+interface Conn3D {
   a: number;
   b: number;
-  ctrl: Vec2;
+  curve: THREE.QuadraticBezierCurve3;
+  tube: THREE.Mesh;
   formAt: number;
-  particles: { t: number; speed: number; size: number }[];
+  flashSprite: THREE.Sprite;
+  particles: { t: number; speed: number; sprite: THREE.Sprite; size: number }[];
 }
 
-interface FloatingDot {
-  x: number; y: number;
-  vx: number; vy: number;
-  r: number;
-  alpha: number;
-  life: number;
-  maxLife: number;
+interface Label3D {
+  text: string;
+  targetPos: THREE.Vector3;
+  object: CSS2DObject;
+  connector: THREE.Line;
+  appearAt: number;
 }
+
+/* ─── Helpers ─── */
 
 function easeOutCubic(t: number): number {
   return 1 - Math.pow(1 - t, 3);
 }
 
-function bezier(a: Vec2, ctrl: Vec2, b: Vec2, t: number): Vec2 {
-  const u = 1 - t;
-  return {
-    x: u * u * a.x + 2 * u * t * ctrl.x + t * t * b.x,
-    y: u * u * a.y + 2 * u * t * ctrl.y + t * t * b.y,
-  };
+function createGlowTexture(): THREE.Texture {
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.15, 'rgba(255,255,255,0.6)');
+  g.addColorStop(0.4, 'rgba(255,255,255,0.15)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  return new THREE.CanvasTexture(canvas);
 }
+
+/* ─── Main class ─── */
 
 export class NeuralAnimPopup {
   private overlay: HTMLDivElement;
-  private canvas: HTMLCanvasElement;
-  private ctx: CanvasRenderingContext2D;
+  private threeContainer: HTMLDivElement;
+  private renderer: THREE.WebGLRenderer;
+  private scene: THREE.Scene;
+  private camera: THREE.PerspectiveCamera;
+  private controls: OrbitControls;
   private w: number;
   private h: number;
   private animId = 0;
   private t0 = 0;
   private hue: number;
-  private neurons: NeuronNode[] = [];
-  private dendrites: DendriteSeg[] = [];
-  private conns: Conn[] = [];
-  private dots: FloatingDot[] = [];
+  private regionColor: THREE.Color;
+
+  private neurons: NeuronNode3D[] = [];
+  private dendrites: DendriteSeg3D[] = [];
+  private conns: Conn3D[] = [];
+  private ambientParticles: THREE.Points | null = null;
+
   private escHandler: (e: KeyboardEvent) => void;
   private onCloseCallback: (() => void) | null;
-  private intensity = 0.5; // live EEG signal intensity (0-1)
+  private intensity = 0.5;
   private regionName: string;
   private estimate: NeuralEstimate;
-  private liveVoltage = 0; // current RMS voltage in µV
+  private liveVoltage = 0;
   private biophysPanel: HTMLDivElement | null = null;
+  private labelRenderer!: CSS2DRenderer;
+  private labels: Label3D[] = [];
+  private populationCloud: THREE.Points | null = null;
+  private populationCount = 0;
+  private scaleLabel: CSS2DObject | null = null;
+
+  // Shared textures
+  private glowTex: THREE.Texture;
 
   constructor(
     name: string,
@@ -101,12 +135,14 @@ export class NeuralAnimPopup {
     initialVoltage_uV = 30,
   ) {
     this.hue = this.rgbToHue(color.r, color.g, color.b);
+    this.regionColor = new THREE.Color(color.r, color.g, color.b);
     this.onCloseCallback = onClose ?? null;
     this.regionName = name;
     this.liveVoltage = initialVoltage_uV;
     this.estimate = estimateNeuralPopulation(initialVoltage_uV, name);
+    this.glowTex = createGlowTexture();
 
-    // Build DOM
+    /* ── DOM ── */
     this.overlay = document.createElement('div');
     this.overlay.className = 'neural-overlay';
 
@@ -120,11 +156,13 @@ export class NeuralAnimPopup {
     title.innerHTML = `<span style="color:${cStr}">${name}</span> &mdash; ${label}`;
     popup.appendChild(title);
 
-    this.canvas = document.createElement('canvas');
-    this.canvas.className = 'neural-canvas';
-    popup.appendChild(this.canvas);
+    // 3D container replaces 2D canvas
+    this.threeContainer = document.createElement('div');
+    this.threeContainer.className = 'neural-canvas';
+    this.threeContainer.style.overflow = 'hidden';
+    popup.appendChild(this.threeContainer);
 
-    // Legend row
+    // Legend
     const legend = document.createElement('div');
     legend.className = 'neural-legend';
     legend.innerHTML = [
@@ -136,7 +174,7 @@ export class NeuralAnimPopup {
     ].join('');
     popup.appendChild(legend);
 
-    // Biophysical model readout panel
+    // Biophysical model readout
     this.biophysPanel = document.createElement('div');
     this.biophysPanel.className = 'neural-biophys';
     this.updateBiophysPanel();
@@ -147,12 +185,9 @@ export class NeuralAnimPopup {
     if (regionInfo) {
       const info = document.createElement('div');
       info.className = 'neural-region-info';
-      // Split at " — " to separate region name from description
       const dashIdx = regionInfo.indexOf(' — ');
       if (dashIdx >= 0) {
-        const heading = regionInfo.slice(0, dashIdx);
-        const body = regionInfo.slice(dashIdx + 3);
-        info.innerHTML = `<strong>${heading}</strong><br>${body}`;
+        info.innerHTML = `<strong>${regionInfo.slice(0, dashIdx)}</strong><br>${regionInfo.slice(dashIdx + 3)}`;
       } else {
         info.textContent = regionInfo;
       }
@@ -161,54 +196,100 @@ export class NeuralAnimPopup {
 
     const hint = document.createElement('div');
     hint.className = 'neural-hint';
-    hint.textContent = 'Click outside or press Esc to close';
+    hint.textContent = 'Drag to rotate · Scroll to zoom · Click outside or Esc to close';
     popup.appendChild(hint);
 
     this.overlay.appendChild(popup);
     document.body.appendChild(this.overlay);
 
-    // Sizing — cap width so neurons stay dense and text wraps
+    /* ── Sizing ── */
     this.w = Math.min(780, window.innerWidth - 64);
     this.h = Math.min(420, window.innerHeight - 160);
-    const dpr = window.devicePixelRatio;
-    this.canvas.width = this.w * dpr;
-    this.canvas.height = this.h * dpr;
-    this.canvas.style.width = this.w + 'px';
-    this.canvas.style.height = this.h + 'px';
-    this.ctx = this.canvas.getContext('2d')!;
-    this.ctx.scale(dpr, dpr);
+    this.threeContainer.style.width = this.w + 'px';
+    this.threeContainer.style.height = this.h + 'px';
 
-    // Generate scene — neuron count and soma size driven by cortical density
-    this.placeNeurons();
-    this.growDendrites();
-    this.buildConnections();
-    this.spawnDots();
+    /* ── Three.js setup ── */
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setSize(this.w, this.h);
+    this.renderer.setClearColor(0x08081a, 1);
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.4;
+    this.threeContainer.appendChild(this.renderer.domElement);
 
-    // Events
+    // CSS2D label renderer (overlays on top of WebGL)
+    this.labelRenderer = new CSS2DRenderer();
+    this.labelRenderer.setSize(this.w, this.h);
+    this.labelRenderer.domElement.style.position = 'absolute';
+    this.labelRenderer.domElement.style.top = '0';
+    this.labelRenderer.domElement.style.left = '0';
+    this.labelRenderer.domElement.style.pointerEvents = 'none';
+    this.threeContainer.style.position = 'relative';
+    this.threeContainer.appendChild(this.labelRenderer.domElement);
+
+    this.scene = new THREE.Scene();
+    this.scene.fog = new THREE.FogExp2(0x08081a, 0.06);
+
+    this.camera = new THREE.PerspectiveCamera(42, this.w / this.h, 0.1, 100);
+    this.camera.position.set(0, 1.5, 7);
+    this.camera.lookAt(0, 0, 0);
+
+    this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+    this.controls.enableDamping = true;
+    this.controls.dampingFactor = 0.06;
+    this.controls.autoRotate = true;
+    this.controls.autoRotateSpeed = 1.2;
+    this.controls.enablePan = false;
+    this.controls.minDistance = 3;
+    this.controls.maxDistance = 14;
+
+    // Lighting
+    this.scene.add(new THREE.AmbientLight(0x1a3a5a, 0.4));
+    const key = new THREE.DirectionalLight(0x6699cc, 0.6);
+    key.position.set(5, 8, 5);
+    this.scene.add(key);
+    const fill = new THREE.DirectionalLight(0x334488, 0.25);
+    fill.position.set(-4, 2, -3);
+    this.scene.add(fill);
+    const rim = new THREE.DirectionalLight(0x00aaff, 0.2);
+    rim.position.set(0, -3, -5);
+    this.scene.add(rim);
+
+    /* ── Generate 3D scene ── */
+    this.generateNeurons();
+    this.generateDendrites();
+    this.generateConnections();
+    this.createAmbientParticles();
+    this.createPopulationCloud();
+    this.generateLabels();
+
+    /* ── Events ── */
     this.overlay.addEventListener('click', (e) => {
       if (e.target === this.overlay) this.close();
     });
     this.escHandler = (e) => { if (e.key === 'Escape') this.close(); };
     document.addEventListener('keydown', this.escHandler);
 
-    // Animate in
     requestAnimationFrame(() => this.overlay.classList.add('neural-overlay-visible'));
     this.t0 = performance.now();
     this.tick();
   }
 
-  /** Update with live EEG voltage (µV RMS) to drive firing rate and biophysics readout. */
+  /* ─── Public API ─── */
+
   updateVoltage(rms_uV: number): void {
     this.liveVoltage = rms_uV;
     this.intensity = Math.min(rms_uV / 80, 1.0);
     this.estimate = estimateNeuralPopulation(rms_uV, this.regionName);
     this.updateBiophysPanel();
+    this.updatePopulationCount();
   }
 
-  /** Update with live EEG intensity (0–1) to drive firing rate. */
   updateIntensity(v: number): void {
     this.intensity = v;
   }
+
+  /* ─── Biophysics panel ─── */
 
   private updateBiophysPanel(): void {
     if (!this.biophysPanel) return;
@@ -218,33 +299,23 @@ export class NeuralAnimPopup {
       <div class="neural-biophys-title">4-Sphere Volume Conductor Model</div>
       <div class="neural-biophys-diagram">
         <svg viewBox="0 0 180 100" class="neural-biophys-svg">
-          <!-- Scalp -->
           <ellipse cx="90" cy="50" rx="85" ry="45" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="1.2"/>
           <text x="178" y="52" fill="rgba(255,255,255,0.35)" font-size="5" text-anchor="end">scalp ${CONDUCTIVITY.scalp}</text>
-          <!-- Skull -->
           <ellipse cx="90" cy="50" rx="76" ry="40" fill="none" stroke="rgba(255,200,100,0.25)" stroke-width="2" stroke-dasharray="3,2"/>
           <text x="168" y="42" fill="rgba(255,200,100,0.4)" font-size="5" text-anchor="end">skull ${CONDUCTIVITY.skull}</text>
-          <!-- CSF -->
           <ellipse cx="90" cy="50" rx="70" ry="36" fill="none" stroke="rgba(100,200,255,0.2)" stroke-width="0.8"/>
           <text x="162" y="34" fill="rgba(100,200,255,0.35)" font-size="5" text-anchor="end">CSF ${CONDUCTIVITY.csf}</text>
-          <!-- Brain -->
           <ellipse cx="90" cy="50" rx="65" ry="33" fill="rgba(100,180,255,0.06)" stroke="rgba(100,180,255,0.25)" stroke-width="1"/>
           <text x="156" y="26" fill="rgba(100,180,255,0.4)" font-size="5" text-anchor="end">brain ${CONDUCTIVITY.brain}</text>
-          <!-- Dipole arrow (neural source) -->
-          <line x1="62" y1="30" x2="62" y2="20" stroke="${this.col(70)}" stroke-width="1.5" marker-end="url(#arrowhead-${this.hue})"/>
+          <line x1="62" y1="30" x2="62" y2="20" stroke="${this.col(70)}" stroke-width="1.5" marker-end="url(#ah-${this.hue})"/>
           <text x="62" y="38" fill="${this.col(60)}" font-size="5" text-anchor="middle">dipole</text>
-          <!-- Electrode dot -->
           <circle cx="62" cy="7" r="3" fill="${this.col(70, 0.8)}"/>
           <text x="62" y="4" fill="${this.col(55)}" font-size="5" text-anchor="middle" dy="-3">${this.regionName}</text>
-          <!-- Lead field annotation -->
           <line x1="70" y1="20" x2="70" y2="9" stroke="rgba(255,255,255,0.15)" stroke-width="0.5" stroke-dasharray="2,2"/>
           <text x="74" y="15" fill="rgba(255,255,255,0.3)" font-size="4.5">G = ${e.leadField} V/(A·m)</text>
-          <!-- Arrow marker -->
-          <defs>
-            <marker id="arrowhead-${this.hue}" markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto">
-              <polygon points="0 0, 6 2, 0 4" fill="${this.col(70)}"/>
-            </marker>
-          </defs>
+          <defs><marker id="ah-${this.hue}" markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto">
+            <polygon points="0 0, 6 2, 0 4" fill="${this.col(70)}"/>
+          </marker></defs>
         </svg>
       </div>
       <div class="neural-biophys-grid">
@@ -277,7 +348,7 @@ export class NeuralAnimPopup {
     `;
   }
 
-  /* ─── helpers ─── */
+  /* ─── Helpers ─── */
 
   private rgbToHue(r: number, g: number, b: number): number {
     const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
@@ -294,282 +365,496 @@ export class NeuralAnimPopup {
     return `hsla(${this.hue},70%,${l}%,${a})`;
   }
 
-  /* ─── scene generation ─── */
+  private hslColor(l: number, s = 70): THREE.Color {
+    return new THREE.Color().setHSL(this.hue / 360, s / 100, l / 100);
+  }
 
-  private placeNeurons(): void {
-    // Neuron count driven by cortical density for this brain region
+  /* ─── 3D Scene generation ─── */
+
+  private generateNeurons(): void {
     const n = this.estimate.renderCount;
     const somaScale = this.estimate.renderSomaScale;
-    const margin = 30;
-    // With more neurons, reduce minimum spacing so they all fit
-    const minSpacing = Math.max(28, 50 - (n - 10) * 2);
-    // Cluster neurons toward center so dendrites/connections stay in view
+    const spread = 2.8;
+    const minSpacing = Math.max(0.7, 1.4 - (n - 10) * 0.04);
+
+    // Shared geometry & textures
+    const sphereGeo = new THREE.SphereGeometry(1, 20, 20);
+
     for (let i = 0; i < n; i++) {
-      let pos: Vec2, ok: boolean, tries = 0;
+      let pos: THREE.Vector3;
+      let ok: boolean;
+      let tries = 0;
       do {
-        // Gaussian-ish bias toward center
-        const rx = (Math.random() + Math.random()) / 2; // triangle distribution
-        const ry = (Math.random() + Math.random()) / 2;
-        pos = {
-          x: margin + rx * (this.w - 2 * margin),
-          y: margin + ry * (this.h - 2 * margin),
-        };
-        ok = this.neurons.every(
-          (q) => Math.hypot(q.pos.x - pos.x, q.pos.y - pos.y) > minSpacing,
-        );
+        const rx = (Math.random() + Math.random()) / 2 - 0.5;
+        const ry = (Math.random() + Math.random()) / 2 - 0.5;
+        const rz = (Math.random() + Math.random()) / 2 - 0.5;
+        pos = new THREE.Vector3(rx * spread * 2, ry * spread * 2, rz * spread * 2);
+        ok = this.neurons.every(q => q.pos.distanceTo(pos) > minSpacing);
         tries++;
-      } while (!ok && tries < 80);
-      // Soma radius scaled by region-specific neuron size
-      // Motor cortex Betz cells render ~2× larger than standard pyramidals
-      const baseRadius = 4 + Math.random() * 3;
+      } while (!ok && tries < 100);
+
+      const baseRadius = (0.12 + Math.random() * 0.08) * somaScale;
+
+      // Core sphere
+      const coreMat = new THREE.MeshStandardMaterial({
+        color: this.hslColor(55),
+        emissive: this.hslColor(50),
+        emissiveIntensity: 0.6,
+        roughness: 0.4,
+        metalness: 0.1,
+      });
+      const core = new THREE.Mesh(sphereGeo, coreMat);
+      core.position.copy(pos);
+      core.scale.setScalar(0); // starts invisible
+      core.visible = false;
+      this.scene.add(core);
+
+      // Glow sprite
+      const glowMat = new THREE.SpriteMaterial({
+        map: this.glowTex,
+        color: this.hslColor(55),
+        transparent: true,
+        opacity: 0.5,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      const glow = new THREE.Sprite(glowMat);
+      glow.position.copy(pos);
+      glow.scale.setScalar(0);
+      glow.visible = false;
+      this.scene.add(glow);
+
       this.neurons.push({
         pos,
-        radius: baseRadius * somaScale,
+        radius: baseRadius,
         phase: Math.random() * Math.PI * 2,
         appearAt: i * 0.14,
         lastFire: -10,
+        core,
+        glow,
+        baseScale: baseRadius,
       });
     }
   }
 
-  private growDendrites(): void {
-    for (let i = 0; i < this.neurons.length; i++) {
-      const n = this.neurons[i];
+  private generateDendrites(): void {
+    const lineMat = new THREE.LineBasicMaterial({
+      color: this.hslColor(40),
+      transparent: true,
+      opacity: 0.55,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+
+    for (const neuron of this.neurons) {
       const arms = 3 + ((Math.random() * 3) | 0);
       for (let a = 0; a < arms; a++) {
-        let angle = (a / arms) * Math.PI * 2 + (Math.random() - 0.5) * 0.6;
-        const segLen = 4;
-        const totalLen = 25 + Math.random() * 40;
-        const pts: Vec2[] = [{ ...n.pos }];
+        // Random walk in 3D to generate dendrite path
+        const dir = new THREE.Vector3(
+          Math.random() - 0.5,
+          Math.random() - 0.5,
+          Math.random() - 0.5,
+        ).normalize();
+
+        const segLen = 0.12;
+        const totalLen = 0.6 + Math.random() * 1.0;
+        const controlPts: THREE.Vector3[] = [neuron.pos.clone()];
         let len = 0;
+        const curDir = dir.clone();
+
         while (len < totalLen) {
-          angle += (Math.random() - 0.5) * 0.7;
-          const prev = pts[pts.length - 1];
-          pts.push({
-            x: prev.x + Math.cos(angle) * segLen,
-            y: prev.y + Math.sin(angle) * segLen,
-          });
+          curDir.x += (Math.random() - 0.5) * 0.6;
+          curDir.y += (Math.random() - 0.5) * 0.6;
+          curDir.z += (Math.random() - 0.5) * 0.6;
+          curDir.normalize();
+          const prev = controlPts[controlPts.length - 1];
+          controlPts.push(prev.clone().addScaledVector(curDir, segLen));
           len += segLen;
-          // sub-branch
-          if (len > 15 && Math.random() < 0.25) {
-            let subAngle =
-              angle + (Math.random() < 0.5 ? 1 : -1) * (0.5 + Math.random() * 0.5);
-            const subPts: Vec2[] = [{ ...pts[pts.length - 1] }];
-            const subLen = 10 + Math.random() * 18;
+
+          // Sub-branch
+          if (len > 0.3 && Math.random() < 0.2) {
+            const subDir = curDir.clone();
+            subDir.x += (Math.random() < 0.5 ? 1 : -1) * (0.4 + Math.random() * 0.4);
+            subDir.normalize();
+            const subPts: THREE.Vector3[] = [controlPts[controlPts.length - 1].clone()];
+            const subLen = 0.3 + Math.random() * 0.5;
             let sLen = 0;
             while (sLen < subLen) {
-              subAngle += (Math.random() - 0.5) * 0.8;
+              subDir.x += (Math.random() - 0.5) * 0.7;
+              subDir.y += (Math.random() - 0.5) * 0.7;
+              subDir.z += (Math.random() - 0.5) * 0.7;
+              subDir.normalize();
               const sp = subPts[subPts.length - 1];
-              subPts.push({
-                x: sp.x + Math.cos(subAngle) * segLen,
-                y: sp.y + Math.sin(subAngle) * segLen,
-              });
+              subPts.push(sp.clone().addScaledVector(subDir, segLen));
               sLen += segLen;
             }
-            this.dendrites.push({
-              points: subPts,
-              totalLen: this.pLen(subPts),
-              growStart: n.appearAt + 0.4 + Math.random() * 0.6,
-              growRate: 25 + Math.random() * 20,
-            });
+            this.createDendriteLine(subPts, lineMat, neuron.appearAt + 0.4 + Math.random() * 0.6);
           }
         }
-        this.dendrites.push({
-          points: pts,
-          totalLen: this.pLen(pts),
-          growStart: n.appearAt + 0.25 + Math.random() * 0.3,
-          growRate: 30 + Math.random() * 25,
-        });
-      }
-    }
-  }
 
-  private pLen(pts: Vec2[]): number {
-    let l = 0;
-    for (let i = 1; i < pts.length; i++)
-      l += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
-    return l;
-  }
-
-  private buildConnections(): void {
-    for (let i = 0; i < this.neurons.length; i++) {
-      for (let j = i + 1; j < this.neurons.length; j++) {
-        const d = Math.hypot(
-          this.neurons[i].pos.x - this.neurons[j].pos.x,
-          this.neurons[i].pos.y - this.neurons[j].pos.y,
-        );
-        if (d < 160 && Math.random() < 0.5) {
-          const pa = this.neurons[i].pos,
-            pb = this.neurons[j].pos;
-          const mx = (pa.x + pb.x) / 2,
-            my = (pa.y + pb.y) / 2;
-          const dx = pb.x - pa.x,
-            dy = pb.y - pa.y;
-          const len = Math.hypot(dx, dy);
-          const nx = -dy / len,
-            ny = dx / len;
-          const off = (Math.random() - 0.5) * 40;
-          const ctrl = { x: mx + nx * off, y: my + ny * off };
-
-          const particles = Array.from(
-            { length: 3 + ((Math.random() * 2) | 0) },
-            () => ({
-              t: Math.random(),
-              speed: 0.6 + Math.random() * 0.5,
-              size: 1.5 + Math.random() * 2,
-            }),
-          );
-
-          this.conns.push({
-            a: i,
-            b: j,
-            ctrl,
-            formAt:
-              Math.max(this.neurons[i].appearAt, this.neurons[j].appearAt) +
-              1.2 +
-              Math.random(),
-            particles,
-          });
+        // Smooth the path using CatmullRomCurve3
+        if (controlPts.length >= 2) {
+          const curve = new THREE.CatmullRomCurve3(controlPts);
+          const smoothPts = curve.getPoints(controlPts.length * 3);
+          this.createDendriteLine(smoothPts, lineMat, neuron.appearAt + 0.2 + Math.random() * 0.3);
         }
       }
     }
   }
 
-  private spawnDots(): void {
-    for (let i = 0; i < 35; i++) {
-      this.dots.push({
-        x: Math.random() * this.w,
-        y: Math.random() * this.h,
-        vx: (Math.random() - 0.5) * 6,
-        vy: (Math.random() - 0.5) * 6,
-        r: 0.8 + Math.random() * 1.5,
-        alpha: 0.1 + Math.random() * 0.2,
-        life: Math.random() * 8,
-        maxLife: 4 + Math.random() * 8,
+  private createDendriteLine(pts: THREE.Vector3[], mat: THREE.LineBasicMaterial, growStart: number): void {
+    const positions = new Float32Array(pts.length * 3);
+    for (let i = 0; i < pts.length; i++) {
+      positions[i * 3] = pts[i].x;
+      positions[i * 3 + 1] = pts[i].y;
+      positions[i * 3 + 2] = pts[i].z;
+    }
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geom.setDrawRange(0, 0); // initially invisible
+
+    const line = new THREE.Line(geom, mat);
+    this.scene.add(line);
+    this.dendrites.push({
+      line,
+      totalPoints: pts.length,
+      growStart,
+      growRate: 12 + Math.random() * 8,
+    });
+  }
+
+  private generateConnections(): void {
+    for (let i = 0; i < this.neurons.length; i++) {
+      for (let j = i + 1; j < this.neurons.length; j++) {
+        const d = this.neurons[i].pos.distanceTo(this.neurons[j].pos);
+        if (d < 3.5 && Math.random() < 0.45) {
+          const pa = this.neurons[i].pos;
+          const pb = this.neurons[j].pos;
+          const mid = pa.clone().add(pb).multiplyScalar(0.5);
+          // Perpendicular offset for the control point
+          const tangent = pb.clone().sub(pa).normalize();
+          const up = new THREE.Vector3(0, 1, 0);
+          const perp = new THREE.Vector3().crossVectors(tangent, up).normalize();
+          if (perp.length() < 0.1) perp.set(1, 0, 0);
+          const offset = (Math.random() - 0.5) * d * 0.4;
+          const ctrl = mid.clone().addScaledVector(perp, offset);
+
+          const curve = new THREE.QuadraticBezierCurve3(pa, ctrl, pb);
+          const tubeGeo = new THREE.TubeGeometry(curve, 24, 0.025, 6, false);
+          const tubeMat = new THREE.MeshBasicMaterial({
+            color: this.hslColor(45),
+            transparent: true,
+            opacity: 0,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+          });
+          const tube = new THREE.Mesh(tubeGeo, tubeMat);
+          tube.visible = false;
+          this.scene.add(tube);
+
+          // Synapse flash sprite at midpoint
+          const flashMat = new THREE.SpriteMaterial({
+            map: this.glowTex,
+            color: this.hslColor(80),
+            transparent: true,
+            opacity: 0,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+          });
+          const flashSprite = new THREE.Sprite(flashMat);
+          flashSprite.position.copy(curve.getPoint(0.5));
+          flashSprite.scale.setScalar(0);
+          flashSprite.visible = false;
+          this.scene.add(flashSprite);
+
+          // Action potential particles
+          const particles = Array.from({ length: 3 + ((Math.random() * 2) | 0) }, () => {
+            const pMat = new THREE.SpriteMaterial({
+              map: this.glowTex,
+              color: this.hslColor(80),
+              transparent: true,
+              opacity: 0.9,
+              blending: THREE.AdditiveBlending,
+              depthWrite: false,
+            });
+            const sprite = new THREE.Sprite(pMat);
+            sprite.scale.setScalar(0.12 + Math.random() * 0.08);
+            sprite.visible = false;
+            this.scene.add(sprite);
+            return {
+              t: Math.random(),
+              speed: 0.5 + Math.random() * 0.4,
+              sprite,
+              size: 0.12 + Math.random() * 0.08,
+            };
+          });
+
+          const formAt = Math.max(this.neurons[i].appearAt, this.neurons[j].appearAt) + 1.2 + Math.random();
+          this.conns.push({ a: i, b: j, curve, tube, formAt, flashSprite, particles });
+        }
+      }
+    }
+  }
+
+  private createAmbientParticles(): void {
+    const count = 250;
+    const positions = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      positions[i * 3] = (Math.random() - 0.5) * 14;
+      positions[i * 3 + 1] = (Math.random() - 0.5) * 14;
+      positions[i * 3 + 2] = (Math.random() - 0.5) * 14;
+    }
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const mat = new THREE.PointsMaterial({
+      color: this.regionColor,
+      size: 0.04,
+      transparent: true,
+      opacity: 0.35,
+      sizeAttenuation: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    this.ambientParticles = new THREE.Points(geom, mat);
+    this.scene.add(this.ambientParticles);
+  }
+
+  /* ─── Population Cloud ─── */
+
+  private static readonly MAX_POP_PARTICLES = 2000;
+
+  private createPopulationCloud(): void {
+    const MAX = NeuralAnimPopup.MAX_POP_PARTICLES;
+    const positions = new Float32Array(MAX * 3);
+    for (let i = 0; i < MAX; i++) {
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      // sqrt bias pushes more particles toward outer shell for visual density
+      const r = 0.6 + Math.pow(Math.random(), 0.5) * 5;
+      positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+      positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+      positions[i * 3 + 2] = r * Math.cos(phi);
+    }
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+    const mat = new THREE.PointsMaterial({
+      color: this.hslColor(50),
+      size: 0.07,
+      transparent: true,
+      opacity: 0.45,
+      sizeAttenuation: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      map: this.glowTex,
+    });
+
+    this.populationCloud = new THREE.Points(geom, mat);
+    this.scene.add(this.populationCloud);
+
+    // Scale indicator label (floats below the neuron cluster)
+    const div = document.createElement('div');
+    div.className = 'neural-3d-label neural-3d-scale';
+    this.scaleLabel = new CSS2DObject(div);
+    this.scaleLabel.position.set(0, -3.8, 0);
+    this.scene.add(this.scaleLabel);
+
+    this.updatePopulationCount();
+  }
+
+  private updatePopulationCount(): void {
+    const active = this.estimate.activeNeurons;
+    const MAX = NeuralAnimPopup.MAX_POP_PARTICLES;
+    // sqrt scale: 100K→~224, 1M→~707, 5M→~1581, 10M→2000 (capped)
+    this.populationCount = Math.round(
+      Math.max(50, Math.min(MAX, Math.sqrt(active / 2))),
+    );
+
+    if (this.populationCloud) {
+      this.populationCloud.geometry.setDrawRange(0, this.populationCount);
+    }
+
+    if (this.scaleLabel) {
+      const ratio = active > 0 ? Math.round(active / this.populationCount) : 0;
+      this.scaleLabel.element.innerHTML =
+        `<span style="color:rgba(100,200,255,0.9);font-weight:700">~${formatNeuronCount(active)}</span> ` +
+        `neurons firing synchronously` +
+        `<br><span style="opacity:0.5">each dot ≈ ${formatNeuronCount(ratio)} neurons</span>`;
+    }
+  }
+
+  /* ─── 3D Labels ─── */
+
+  private generateLabels(): void {
+    const connectorMat = new THREE.LineBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0,
+      depthTest: false,
+    });
+
+    const labelDefs: { text: string; target: THREE.Vector3; offset: THREE.Vector3; delay: number }[] = [];
+
+    // 1. Neuron (soma) — label the second neuron for better visibility
+    if (this.neurons.length > 1) {
+      const n = this.neurons[1];
+      labelDefs.push({
+        text: 'Neuron (soma)',
+        target: n.pos.clone(),
+        offset: new THREE.Vector3(0.9, 0.7, 0),
+        delay: n.appearAt + 0.3,
+      });
+    }
+
+    // 2. Dendrite — pick a midpoint on a dendrite
+    if (this.dendrites.length > 2) {
+      const seg = this.dendrites[2];
+      const posAttr = seg.line.geometry.getAttribute('position') as THREE.BufferAttribute;
+      const midIdx = Math.floor(seg.totalPoints * 0.6);
+      const midPos = new THREE.Vector3(
+        posAttr.getX(midIdx),
+        posAttr.getY(midIdx),
+        posAttr.getZ(midIdx),
+      );
+      labelDefs.push({
+        text: 'Dendrite',
+        target: midPos,
+        offset: new THREE.Vector3(-0.7, 0.5, 0),
+        delay: seg.growStart + 0.6,
+      });
+    }
+
+    // 3. Axon — label the first connection's midpoint
+    if (this.conns.length > 0) {
+      const c = this.conns[0];
+      const mid = c.curve.getPoint(0.5);
+      labelDefs.push({
+        text: 'Axon',
+        target: mid,
+        offset: new THREE.Vector3(0.7, -0.5, 0),
+        delay: c.formAt + 0.2,
+      });
+    }
+
+    // 4. Action potential — near a particle path on the second connection
+    if (this.conns.length > 1) {
+      const c = this.conns[1];
+      const pt = c.curve.getPoint(0.35);
+      labelDefs.push({
+        text: 'Action potential',
+        target: pt,
+        offset: new THREE.Vector3(-0.8, -0.6, 0),
+        delay: c.formAt + 1.0,
+      });
+    }
+
+    // 5. Synapse — at a connection junction
+    if (this.conns.length > 2) {
+      const c = this.conns[2];
+      const targetNeuron = this.neurons[c.b];
+      labelDefs.push({
+        text: 'Synapse',
+        target: targetNeuron.pos.clone(),
+        offset: new THREE.Vector3(0.6, 0.8, 0),
+        delay: c.formAt + 0.1,
+      });
+    }
+
+    for (const def of labelDefs) {
+      const labelPos = def.target.clone().add(def.offset);
+
+      // CSS2D label element
+      const div = document.createElement('div');
+      div.className = 'neural-3d-label';
+      div.textContent = def.text;
+      div.style.opacity = '0';
+      const cssObj = new CSS2DObject(div);
+      cssObj.position.copy(labelPos);
+      this.scene.add(cssObj);
+
+      // Thin connector line from target to label
+      const lineGeo = new THREE.BufferGeometry().setFromPoints([def.target, labelPos]);
+      const line = new THREE.Line(lineGeo, connectorMat.clone());
+      line.visible = false;
+      line.renderOrder = 999;
+      this.scene.add(line);
+
+      this.labels.push({
+        text: def.text,
+        targetPos: def.target,
+        object: cssObj,
+        connector: line,
+        appearAt: def.delay,
       });
     }
   }
 
-  /* ─── render loop ─── */
+  /* ─── Render loop ─── */
 
   private tick = (): void => {
     this.animId = requestAnimationFrame(this.tick);
     const t = (performance.now() - this.t0) / 1000;
-    const ctx = this.ctx;
-    const w = this.w,
-      h = this.h;
 
-    // Background
-    ctx.fillStyle = '#08081a';
-    ctx.fillRect(0, 0, w, h);
-    const g = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w * 0.55);
-    g.addColorStop(0, this.col(12, 0.35));
-    g.addColorStop(1, 'transparent');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, w, h);
+    this.controls.update();
 
-    // Ambient dots
-    for (const d of this.dots) {
-      d.life += 1 / 60;
-      if (d.life > d.maxLife) {
-        d.x = Math.random() * w;
-        d.y = Math.random() * h;
-        d.life = 0;
-      }
-      d.x += d.vx / 60;
-      d.y += d.vy / 60;
-      const fade = Math.min(d.life, 1) * Math.min(d.maxLife - d.life, 1);
-      ctx.beginPath();
-      ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
-      ctx.fillStyle = this.col(55, d.alpha * Math.max(fade, 0));
-      ctx.fill();
+    // Ambient particles rotation
+    if (this.ambientParticles) {
+      this.ambientParticles.rotation.y += 0.0008;
+      this.ambientParticles.rotation.x += 0.0003;
     }
 
-    // Dendrites
-    ctx.lineCap = 'round';
+    // ── Dendrite growth ──
     for (const seg of this.dendrites) {
       const age = t - seg.growStart;
       if (age <= 0) continue;
-      const visLen = Math.min(age * seg.growRate, seg.totalLen);
-      ctx.beginPath();
-      let drawn = 0;
-      for (let i = 0; i < seg.points.length; i++) {
-        const p = seg.points[i];
-        if (i === 0) {
-          ctx.moveTo(p.x, p.y);
-          continue;
-        }
-        const prev = seg.points[i - 1];
-        const sl = Math.hypot(p.x - prev.x, p.y - prev.y);
-        if (drawn + sl > visLen) {
-          const f = (visLen - drawn) / sl;
-          ctx.lineTo(prev.x + (p.x - prev.x) * f, prev.y + (p.y - prev.y) * f);
-          break;
-        }
-        ctx.lineTo(p.x, p.y);
-        drawn += sl;
-      }
-      ctx.strokeStyle = this.col(35, 0.45);
-      ctx.lineWidth = 1.2;
-      ctx.stroke();
+      const count = Math.min(Math.floor(age * seg.growRate) + 1, seg.totalPoints);
+      seg.line.geometry.setDrawRange(0, count);
     }
 
-    // Connections
+    // ── Connections ──
     for (const c of this.conns) {
       const age = t - c.formAt;
-      if (age < 0) continue;
-      const fa = this.neurons[c.a].pos,
-        fb = this.neurons[c.b].pos;
-      const alpha = Math.min(age / 0.6, 1);
-
-      // Line
-      ctx.beginPath();
-      ctx.moveTo(fa.x, fa.y);
-      ctx.quadraticCurveTo(c.ctrl.x, c.ctrl.y, fb.x, fb.y);
-      ctx.strokeStyle = this.col(45, alpha * 0.35);
-      ctx.lineWidth = 1.2;
-      ctx.stroke();
-
-      // Flash on form
-      if (age < 0.5) {
-        const mid = bezier(fa, c.ctrl, fb, 0.5);
-        const fAlpha = (1 - age / 0.5) * 0.5;
-        const rr = 12 * (1 - age / 0.5);
-        const fg = ctx.createRadialGradient(mid.x, mid.y, 0, mid.x, mid.y, rr);
-        fg.addColorStop(0, this.col(85, fAlpha));
-        fg.addColorStop(1, this.col(60, 0));
-        ctx.fillStyle = fg;
-        ctx.fillRect(mid.x - rr, mid.y - rr, rr * 2, rr * 2);
+      if (age < 0) {
+        c.tube.visible = false;
+        c.flashSprite.visible = false;
+        for (const p of c.particles) p.sprite.visible = false;
+        continue;
       }
 
-      // Flowing particles (action potentials) — speed scales with EEG intensity
+      // Fade in tube
+      c.tube.visible = true;
+      const alpha = Math.min(age / 0.8, 1);
+      (c.tube.material as THREE.MeshBasicMaterial).opacity = alpha * 0.3;
+
+      // Synapse flash on formation
+      if (age < 0.6) {
+        c.flashSprite.visible = true;
+        const fProgress = age / 0.6;
+        (c.flashSprite.material as THREE.SpriteMaterial).opacity = (1 - fProgress) * 0.3;
+        c.flashSprite.scale.setScalar(0.5 * (1 - fProgress));
+      } else {
+        c.flashSprite.visible = false;
+      }
+
+      // Action potential particles
       const speedMul = 0.15 + this.intensity * 1.85;
-      if (age > 0.25) {
+      if (age > 0.3) {
         for (const p of c.particles) {
+          p.sprite.visible = true;
           const prevT = p.t;
-          p.t = (p.t + p.speed * speedMul / 60) % 1;
-          // Fire destination neuron when particle arrives
+          p.t = (p.t + (p.speed * speedMul) / 60) % 1;
           if (p.t < prevT) {
             this.neurons[c.b].lastFire = t;
           }
-          const pp = bezier(fa, c.ctrl, fb, p.t);
-          ctx.save();
-          ctx.shadowColor = this.col(70);
-          ctx.shadowBlur = 8;
-          ctx.beginPath();
-          ctx.arc(pp.x, pp.y, p.size, 0, Math.PI * 2);
-          ctx.fillStyle = this.col(80, 0.85);
-          ctx.fill();
-          ctx.restore();
+          const pt = c.curve.getPoint(p.t);
+          p.sprite.position.copy(pt);
+          p.sprite.scale.setScalar(p.size * (1 + this.intensity * 0.5));
         }
       }
     }
 
-    // Canvas labels — subtle annotations that fade in as elements appear
-    this.drawLabels(ctx, t);
-
-    // Spontaneous firing driven by EEG intensity — more neurons light up with stronger signal
-    const fireChance = this.intensity * 0.08; // per neuron per frame (~0-8% at 60fps)
+    // ── Spontaneous firing ──
+    const fireChance = this.intensity * 0.08;
     for (const n of this.neurons) {
       const age = t - n.appearAt;
       if (age < 0) continue;
@@ -579,244 +864,100 @@ export class NeuralAnimPopup {
       }
     }
 
-    // Neurons (on top)
+    // ── Neurons ──
     for (const n of this.neurons) {
       const age = t - n.appearAt;
-      if (age < 0) continue;
-      const s = easeOutCubic(Math.min(age / 0.35, 1));
+      if (age < 0) {
+        n.core.visible = false;
+        n.glow.visible = false;
+        continue;
+      }
+
+      n.core.visible = true;
+      n.glow.visible = true;
+
+      const s = easeOutCubic(Math.min(age / 0.4, 1));
       const pulseRate = 2.5 + this.intensity * 4;
       const pulse = 1 + 0.12 * Math.sin(t * pulseRate + n.phase);
 
-      // Expand on fire: fast swell that decays over 0.3s
       const fireDt = t - n.lastFire;
-      const fireScale = fireDt < 0.3 ? 1 + 0.6 * (1 - fireDt / 0.3) : 1;
+      const fireScale = fireDt < 0.3 ? 1 + 0.35 * (1 - fireDt / 0.3) : 1;
       const fireBright = fireDt < 0.3 ? 1 - fireDt / 0.3 : 0;
 
-      const r = n.radius * s * pulse * fireScale;
-      const a = Math.min(age / 0.4, 1);
+      const scale = n.baseScale * s * pulse * fireScale;
+      n.core.scale.setScalar(scale);
 
-      // Outer glow (bigger when firing)
-      const glowMul = 1 + fireBright * 1.5;
-      const gr = r * 3.5 * glowMul;
-      const gg = ctx.createRadialGradient(
-        n.pos.x, n.pos.y, r * 0.3,
-        n.pos.x, n.pos.y, gr,
-      );
-      gg.addColorStop(0, this.col(55 + fireBright * 25, a * (0.5 + fireBright * 0.4)));
-      gg.addColorStop(1, this.col(40, 0));
-      ctx.fillStyle = gg;
-      ctx.fillRect(n.pos.x - gr, n.pos.y - gr, gr * 2, gr * 2);
+      // Update core emissive
+      const coreMat = n.core.material as THREE.MeshStandardMaterial;
+      coreMat.emissiveIntensity = 0.6 + fireBright * 1.2;
+      if (fireBright > 0) {
+        coreMat.emissive.copy(this.hslColor(55 + fireBright * 30));
+      }
 
-      // Core
-      ctx.beginPath();
-      ctx.arc(n.pos.x, n.pos.y, r, 0, Math.PI * 2);
-      ctx.fillStyle = this.col(55 + fireBright * 30, a * (0.7 + fireBright * 0.3));
-      ctx.fill();
-
-      // Bright center
-      ctx.beginPath();
-      ctx.arc(n.pos.x, n.pos.y, r * 0.4, 0, Math.PI * 2);
-      ctx.fillStyle = this.col(90, a * 0.95);
-      ctx.fill();
+      // Glow sprite
+      const glowScale = scale * 3.5 * (1 + fireBright * 0.6);
+      n.glow.scale.setScalar(glowScale);
+      const glowMat = n.glow.material as THREE.SpriteMaterial;
+      glowMat.opacity = Math.min(age / 0.5, 1) * (0.4 + fireBright * 0.5);
 
       // Appear flash
       if (age < 0.5) {
-        const fA = (1 - age / 0.5) * 0.35;
-        const fR = r * 4 * (1 - easeOutCubic(age / 0.5));
-        const fg2 = ctx.createRadialGradient(
-          n.pos.x, n.pos.y, 0,
-          n.pos.x, n.pos.y, fR,
-        );
-        fg2.addColorStop(0, this.col(80, fA));
-        fg2.addColorStop(1, this.col(60, 0));
-        ctx.fillStyle = fg2;
-        ctx.fillRect(n.pos.x - fR, n.pos.y - fR, fR * 2, fR * 2);
+        n.glow.scale.setScalar(glowScale + n.baseScale * 3 * (1 - easeOutCubic(age / 0.5)));
+        glowMat.opacity = Math.max(glowMat.opacity, (1 - age / 0.5) * 0.25);
       }
     }
+
+    // ── Population cloud animation ──
+    if (this.populationCloud) {
+      this.populationCloud.rotation.y += 0.0006;
+      this.populationCloud.rotation.x += 0.0002;
+      // Gentle opacity pulse with intensity
+      const popMat = this.populationCloud.material as THREE.PointsMaterial;
+      popMat.opacity = 0.3 + this.intensity * 0.25 + 0.05 * Math.sin(t * 1.5);
+    }
+
+    // ── Labels ──
+    for (const lbl of this.labels) {
+      const age = t - lbl.appearAt;
+      if (age < 0) {
+        lbl.object.element.style.opacity = '0';
+        lbl.connector.visible = false;
+        continue;
+      }
+      const alpha = Math.min(age / 0.8, 1);
+      lbl.object.element.style.opacity = String(alpha);
+      lbl.connector.visible = true;
+      (lbl.connector.material as THREE.LineBasicMaterial).opacity = alpha * 0.25;
+    }
+
+    this.renderer.render(this.scene, this.camera);
+    this.labelRenderer.render(this.scene, this.camera);
   };
 
-  private drawLabels(ctx: CanvasRenderingContext2D, t: number): void {
-    ctx.save();
-    ctx.font = '10px monospace';
-    ctx.textBaseline = 'middle';
-
-    const labelData: { text: string; target: Vec2; offset: Vec2; appearAt: number }[] = [];
-
-    const cx = this.w / 2;
-    const cy = this.h / 2;
-    // Helper: pick offset direction AWAY from canvas center, with a large magnitude
-    const awayOffset = (pos: Vec2, mag: number): Vec2 => {
-      const dx = pos.x - cx;
-      const dy = pos.y - cy;
-      const len = Math.hypot(dx, dy) || 1;
-      return { x: (dx / len) * mag, y: (dy / len) * mag };
-    };
-
-    // Gather candidate points for each label type, then greedily pick the most spread-out set
-    interface Candidate { text: string; target: Vec2; appearAt: number }
-    const groups: Candidate[][] = [];
-
-    // Group 0: Neuron (soma)
-    const neuronCands: Candidate[] = this.neurons.map(n => ({
-      text: 'Neuron (soma)', target: n.pos, appearAt: n.appearAt + 0.4,
-    }));
-    groups.push(neuronCands);
-
-    // Group 1: Dendrite
-    const dendCands: Candidate[] = this.dendrites.map(d => {
-      const tip = d.points[Math.min(4, d.points.length - 1)];
-      return { text: 'Dendrite', target: tip, appearAt: d.growStart + 0.6 };
-    });
-    groups.push(dendCands);
-
-    // Group 2: Axon (midpoints of connections)
-    const axonCands: Candidate[] = this.conns.map(c => {
-      const mid = bezier(this.neurons[c.a].pos, c.ctrl, this.neurons[c.b].pos, 0.5);
-      return { text: 'Axon', target: mid, appearAt: c.formAt + 0.3 };
-    });
-    groups.push(axonCands);
-
-    // Group 3: Action potential (at 0.3 along connections)
-    const apCands: Candidate[] = this.conns.map(c => {
-      const pt = bezier(this.neurons[c.a].pos, c.ctrl, this.neurons[c.b].pos, 0.3);
-      return { text: 'Action potential', target: pt, appearAt: c.formAt + 0.8 };
-    });
-    groups.push(apCands);
-
-    // Group 4: Synapse (destination neurons of connections)
-    const synCands: Candidate[] = this.conns.map(c => ({
-      text: 'Synapse', target: this.neurons[c.b].pos, appearAt: c.formAt + 0.1,
-    }));
-    groups.push(synCands);
-
-    // Greedy spread: for each group in order, pick the candidate furthest from all already-chosen points
-    const chosen: Vec2[] = [];
-    for (const cands of groups) {
-      if (cands.length === 0) continue;
-      let bestIdx = 0;
-      let bestMinDist = -1;
-      for (let i = 0; i < cands.length; i++) {
-        const p = cands[i].target;
-        // Minimum distance to any already-chosen label
-        let minD = Infinity;
-        for (const c of chosen) {
-          minD = Math.min(minD, Math.hypot(p.x - c.x, p.y - c.y));
-        }
-        if (chosen.length === 0) minD = Math.hypot(p.x - cx, p.y - cy); // first: pick furthest from center
-        if (minD > bestMinDist) {
-          bestMinDist = minD;
-          bestIdx = i;
-        }
-      }
-      const pick = cands[bestIdx];
-      chosen.push(pick.target);
-      labelData.push({
-        text: pick.text,
-        target: pick.target,
-        offset: awayOffset(pick.target, 45),
-        appearAt: pick.appearAt,
-      });
-    }
-
-    // Compute resolved label positions and push apart overlapping ones
-    const visible: { text: string; target: Vec2; lx: number; ly: number; alpha: number }[] = [];
-    for (const lb of labelData) {
-      const age = t - lb.appearAt;
-      if (age < 0) continue;
-      const alpha = Math.min(age / 0.5, 0.65);
-      visible.push({
-        text: lb.text,
-        target: lb.target,
-        lx: lb.target.x + lb.offset.x,
-        ly: lb.target.y + lb.offset.y,
-        alpha,
-      });
-    }
-
-    // Repel overlapping labels (iterate a few times for stability)
-    const MIN_GAP_X = 110; // minimum horizontal distance between label anchors
-    const MIN_GAP_Y = 18;  // minimum vertical distance
-    for (let iter = 0; iter < 5; iter++) {
-      for (let i = 0; i < visible.length; i++) {
-        for (let j = i + 1; j < visible.length; j++) {
-          const dx = visible[j].lx - visible[i].lx;
-          const dy = visible[j].ly - visible[i].ly;
-          const overlapX = Math.abs(dx) < MIN_GAP_X;
-          const overlapY = Math.abs(dy) < MIN_GAP_Y;
-          if (overlapX && overlapY) {
-            // Push apart vertically
-            const push = (MIN_GAP_Y - Math.abs(dy)) / 2 + 1;
-            if (dy >= 0) {
-              visible[i].ly -= push;
-              visible[j].ly += push;
-            } else {
-              visible[i].ly += push;
-              visible[j].ly -= push;
-            }
-          }
-        }
-      }
-    }
-
-    // Clamp labels to stay within canvas bounds
-    const PAD = 4;          // padding from canvas edge
-    const LABEL_GAP = 4;    // gap between connector line end and text
-    const CHAR_W = 6.2;     // approximate width per character at 10px monospace
-    const HALF_H = 6;       // half the text height
-
-    for (const lb of visible) {
-      const textW = lb.text.length * CHAR_W;
-      const leftOfTarget = lb.lx < lb.target.x;
-
-      if (leftOfTarget) {
-        // Text is drawn right-aligned at (lx - LABEL_GAP), so left edge is at lx - LABEL_GAP - textW
-        const leftEdge = lb.lx - LABEL_GAP - textW;
-        if (leftEdge < PAD) {
-          lb.lx = PAD + textW + LABEL_GAP;
-        }
-        // Also check right edge (the connector point)
-        if (lb.lx > this.w - PAD) {
-          lb.lx = this.w - PAD;
-        }
-      } else {
-        // Text is drawn left-aligned at (lx + LABEL_GAP), so right edge is at lx + LABEL_GAP + textW
-        const rightEdge = lb.lx + LABEL_GAP + textW;
-        if (rightEdge > this.w - PAD) {
-          lb.lx = this.w - PAD - textW - LABEL_GAP;
-        }
-        // Also check left edge
-        if (lb.lx < PAD) {
-          lb.lx = PAD;
-        }
-      }
-
-      // Clamp vertical
-      if (lb.ly - HALF_H < PAD) lb.ly = PAD + HALF_H;
-      if (lb.ly + HALF_H > this.h - PAD) lb.ly = this.h - PAD - HALF_H;
-    }
-
-    for (const lb of visible) {
-      // Connector line
-      ctx.beginPath();
-      ctx.moveTo(lb.target.x, lb.target.y);
-      ctx.lineTo(lb.lx, lb.ly);
-      ctx.strokeStyle = `rgba(255,255,255,${lb.alpha * 0.3})`;
-      ctx.lineWidth = 0.8;
-      ctx.stroke();
-
-      // Text
-      const leftOfTarget = lb.lx < lb.target.x;
-      ctx.textAlign = leftOfTarget ? 'right' : 'left';
-      ctx.fillStyle = `rgba(255,255,255,${lb.alpha})`;
-      ctx.fillText(lb.text, lb.lx + (leftOfTarget ? -LABEL_GAP : LABEL_GAP), lb.ly);
-    }
-
-    ctx.restore();
-  }
+  /* ─── Cleanup ─── */
 
   close(): void {
     cancelAnimationFrame(this.animId);
     document.removeEventListener('keydown', this.escHandler);
+
+    this.controls.dispose();
+    this.glowTex.dispose();
+
+    this.scene.traverse((obj) => {
+      if (obj instanceof THREE.Mesh || obj instanceof THREE.Line || obj instanceof THREE.Points) {
+        obj.geometry.dispose();
+        const mat = obj.material;
+        if (Array.isArray(mat)) mat.forEach(m => m.dispose());
+        else if (mat) (mat as THREE.Material).dispose();
+      }
+      if (obj instanceof THREE.Sprite) {
+        (obj.material as THREE.SpriteMaterial).dispose();
+      }
+    });
+
+    this.renderer.dispose();
+    this.labelRenderer.domElement.remove();
+
     this.overlay.classList.remove('neural-overlay-visible');
     setTimeout(() => {
       this.overlay.remove();
