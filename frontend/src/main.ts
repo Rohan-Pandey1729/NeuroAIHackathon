@@ -83,13 +83,15 @@ const brainScene = new BrainScene(brainContainer);
 // Neural connection animation on electrode click
 let activeNeural: NeuralAnimPopup | null = null;
 let activeElectrode = '';
+let lastElectrodeRMS: Record<string, number> = {};
 brainScene.onElectrodeClick((name, color) => {
   if (activeNeural) return;
   activeElectrode = name;
+  const initialVoltage = lastElectrodeRMS[name] ?? 30;
   activeNeural = new NeuralAnimPopup(name, color, () => {
     activeNeural = null;
     activeElectrode = '';
-  });
+  }, initialVoltage);
 });
 
 const DISPLAY_SAMPLES = 500;
@@ -284,15 +286,20 @@ onEegData((data: EegMessage) => {
   const framesUntilNext = 6; // ~100ms / 16.6ms
   samplesPerFrame = Math.max(1, Math.ceil(totalPending / framesUntilNext));
 
-  // Feed live intensity to neural animation popup
-  if (activeNeural && activeElectrode) {
-    const chIdx = (data.channel_names ?? []).indexOf(activeElectrode);
-    if (chIdx >= 0 && data.channels[chIdx]) {
-      const samples = data.channels[chIdx];
+  // Track per-electrode RMS voltage and feed to neural animation popup
+  const channelNames = data.channel_names ?? [];
+  for (let ci = 0; ci < channelNames.length; ci++) {
+    if (data.channels[ci]) {
+      const samples = data.channels[ci];
       let sumSq = 0;
       for (const v of samples) sumSq += v * v;
-      const rms = Math.sqrt(sumSq / samples.length);
-      activeNeural.updateIntensity(Math.min(rms / 80, 1.0));
+      lastElectrodeRMS[channelNames[ci]] = Math.sqrt(sumSq / samples.length);
+    }
+  }
+  if (activeNeural && activeElectrode) {
+    const rms = lastElectrodeRMS[activeElectrode];
+    if (rms !== undefined) {
+      activeNeural.updateVoltage(rms);
     }
   }
 

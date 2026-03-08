@@ -608,6 +608,75 @@ canvas {
   white-space: normal;
 }
 
+/* Biophysical model readout panel */
+.neural-biophys {
+  margin-top: 0.6rem;
+  padding: 0.6rem 0.8rem;
+  background: rgba(60, 140, 255, 0.04);
+  border: 1px solid rgba(60, 140, 255, 0.12);
+  border-radius: 8px;
+  font-size: 0.72em;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.55);
+  max-width: 780px;
+}
+
+.neural-biophys-title {
+  font-size: 0.85em;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.7);
+  margin-bottom: 0.4rem;
+  letter-spacing: 0.02em;
+}
+
+.neural-biophys-diagram {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 0.4rem;
+}
+
+.neural-biophys-svg {
+  width: 260px;
+  height: auto;
+}
+
+.neural-biophys-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 1rem;
+}
+
+.neural-biophys-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 1px 0;
+}
+
+.neural-biophys-label {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.neural-biophys-value {
+  color: rgba(255, 255, 255, 0.75);
+  font-family: monospace;
+  text-align: right;
+}
+
+.neural-biophys-highlight .neural-biophys-value {
+  color: rgba(100, 200, 255, 0.9);
+  font-weight: 600;
+}
+
+.neural-biophys-eq {
+  margin-top: 0.4rem;
+  padding-top: 0.3rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  font-family: monospace;
+  font-size: 0.9em;
+  color: rgba(255, 255, 255, 0.35);
+  text-align: center;
+}
+
 .neural-hint {
   text-align: center;
   font-size: 0.7em;

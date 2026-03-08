@@ -1,4 +1,10 @@
 // Neural connection formation animation popup
+import {
+  estimateNeuralPopulation,
+  formatNeuronCount,
+  CONDUCTIVITY,
+  type NeuralEstimate,
+} from './neuro-model.ts';
 
 const REGION_LABELS: Record<string, string> = {
   F3: 'Left Frontal', F4: 'Right Frontal',
@@ -83,14 +89,22 @@ export class NeuralAnimPopup {
   private escHandler: (e: KeyboardEvent) => void;
   private onCloseCallback: (() => void) | null;
   private intensity = 0.5; // live EEG signal intensity (0-1)
+  private regionName: string;
+  private estimate: NeuralEstimate;
+  private liveVoltage = 0; // current RMS voltage in µV
+  private biophysPanel: HTMLDivElement | null = null;
 
   constructor(
     name: string,
     color: { r: number; g: number; b: number },
     onClose?: () => void,
+    initialVoltage_uV = 30,
   ) {
     this.hue = this.rgbToHue(color.r, color.g, color.b);
     this.onCloseCallback = onClose ?? null;
+    this.regionName = name;
+    this.liveVoltage = initialVoltage_uV;
+    this.estimate = estimateNeuralPopulation(initialVoltage_uV, name);
 
     // Build DOM
     this.overlay = document.createElement('div');
@@ -121,6 +135,12 @@ export class NeuralAnimPopup {
       `<span class="neural-legend-item"><span class="neural-legend-dot neural-legend-dot-flash" style="background:${this.col(85)}"></span>Synapse</span>`,
     ].join('');
     popup.appendChild(legend);
+
+    // Biophysical model readout panel
+    this.biophysPanel = document.createElement('div');
+    this.biophysPanel.className = 'neural-biophys';
+    this.updateBiophysPanel();
+    popup.appendChild(this.biophysPanel);
 
     // Region info
     const regionInfo = REGION_INFO[name];
@@ -158,7 +178,7 @@ export class NeuralAnimPopup {
     this.ctx = this.canvas.getContext('2d')!;
     this.ctx.scale(dpr, dpr);
 
-    // Generate scene
+    // Generate scene — neuron count and soma size driven by cortical density
     this.placeNeurons();
     this.growDendrites();
     this.buildConnections();
@@ -177,9 +197,84 @@ export class NeuralAnimPopup {
     this.tick();
   }
 
+  /** Update with live EEG voltage (µV RMS) to drive firing rate and biophysics readout. */
+  updateVoltage(rms_uV: number): void {
+    this.liveVoltage = rms_uV;
+    this.intensity = Math.min(rms_uV / 80, 1.0);
+    this.estimate = estimateNeuralPopulation(rms_uV, this.regionName);
+    this.updateBiophysPanel();
+  }
+
   /** Update with live EEG intensity (0–1) to drive firing rate. */
   updateIntensity(v: number): void {
     this.intensity = v;
+  }
+
+  private updateBiophysPanel(): void {
+    if (!this.biophysPanel) return;
+    const e = this.estimate;
+    const pctSync = (e.syncFraction * 100).toFixed(1);
+    this.biophysPanel.innerHTML = `
+      <div class="neural-biophys-title">4-Sphere Volume Conductor Model</div>
+      <div class="neural-biophys-diagram">
+        <svg viewBox="0 0 180 100" class="neural-biophys-svg">
+          <!-- Scalp -->
+          <ellipse cx="90" cy="50" rx="85" ry="45" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="1.2"/>
+          <text x="178" y="52" fill="rgba(255,255,255,0.35)" font-size="5" text-anchor="end">scalp ${CONDUCTIVITY.scalp}</text>
+          <!-- Skull -->
+          <ellipse cx="90" cy="50" rx="76" ry="40" fill="none" stroke="rgba(255,200,100,0.25)" stroke-width="2" stroke-dasharray="3,2"/>
+          <text x="168" y="42" fill="rgba(255,200,100,0.4)" font-size="5" text-anchor="end">skull ${CONDUCTIVITY.skull}</text>
+          <!-- CSF -->
+          <ellipse cx="90" cy="50" rx="70" ry="36" fill="none" stroke="rgba(100,200,255,0.2)" stroke-width="0.8"/>
+          <text x="162" y="34" fill="rgba(100,200,255,0.35)" font-size="5" text-anchor="end">CSF ${CONDUCTIVITY.csf}</text>
+          <!-- Brain -->
+          <ellipse cx="90" cy="50" rx="65" ry="33" fill="rgba(100,180,255,0.06)" stroke="rgba(100,180,255,0.25)" stroke-width="1"/>
+          <text x="156" y="26" fill="rgba(100,180,255,0.4)" font-size="5" text-anchor="end">brain ${CONDUCTIVITY.brain}</text>
+          <!-- Dipole arrow (neural source) -->
+          <line x1="62" y1="30" x2="62" y2="20" stroke="${this.col(70)}" stroke-width="1.5" marker-end="url(#arrowhead-${this.hue})"/>
+          <text x="62" y="38" fill="${this.col(60)}" font-size="5" text-anchor="middle">dipole</text>
+          <!-- Electrode dot -->
+          <circle cx="62" cy="7" r="3" fill="${this.col(70, 0.8)}"/>
+          <text x="62" y="4" fill="${this.col(55)}" font-size="5" text-anchor="middle" dy="-3">${this.regionName}</text>
+          <!-- Lead field annotation -->
+          <line x1="70" y1="20" x2="70" y2="9" stroke="rgba(255,255,255,0.15)" stroke-width="0.5" stroke-dasharray="2,2"/>
+          <text x="74" y="15" fill="rgba(255,255,255,0.3)" font-size="4.5">G = ${e.leadField} V/(A·m)</text>
+          <!-- Arrow marker -->
+          <defs>
+            <marker id="arrowhead-${this.hue}" markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto">
+              <polygon points="0 0, 6 2, 0 4" fill="${this.col(70)}"/>
+            </marker>
+          </defs>
+        </svg>
+      </div>
+      <div class="neural-biophys-grid">
+        <div class="neural-biophys-row">
+          <span class="neural-biophys-label">Scalp voltage (RMS)</span>
+          <span class="neural-biophys-value">${this.liveVoltage.toFixed(1)} µV</span>
+        </div>
+        <div class="neural-biophys-row">
+          <span class="neural-biophys-label">Lead field G</span>
+          <span class="neural-biophys-value">${e.leadField} V/(A·m)</span>
+        </div>
+        <div class="neural-biophys-row">
+          <span class="neural-biophys-label">Cortical density</span>
+          <span class="neural-biophys-value">${(e.density / 1000).toFixed(0)}K neurons/mm²</span>
+        </div>
+        <div class="neural-biophys-row">
+          <span class="neural-biophys-label">Soma diameter</span>
+          <span class="neural-biophys-value">${e.somaDiameter} µm${e.somaDiameter >= 30 ? ' (Betz cells)' : ''}</span>
+        </div>
+        <div class="neural-biophys-row neural-biophys-highlight">
+          <span class="neural-biophys-label">Total neurons (patch)</span>
+          <span class="neural-biophys-value">${formatNeuronCount(e.totalNeurons)}</span>
+        </div>
+        <div class="neural-biophys-row neural-biophys-highlight">
+          <span class="neural-biophys-label">Synchronous neurons</span>
+          <span class="neural-biophys-value">${formatNeuronCount(e.activeNeurons)} (${pctSync}%)</span>
+        </div>
+      </div>
+      <div class="neural-biophys-eq">V<sub>scalp</sub> = G × n × q &nbsp;→&nbsp; n = V / (G × q) = ${this.liveVoltage.toFixed(1)} µV / (${e.leadField} × 1 pAm)</div>
+    `;
   }
 
   /* ─── helpers ─── */
@@ -202,8 +297,12 @@ export class NeuralAnimPopup {
   /* ─── scene generation ─── */
 
   private placeNeurons(): void {
-    const n = 10 + ((Math.random() * 4) | 0);
+    // Neuron count driven by cortical density for this brain region
+    const n = this.estimate.renderCount;
+    const somaScale = this.estimate.renderSomaScale;
     const margin = 30;
+    // With more neurons, reduce minimum spacing so they all fit
+    const minSpacing = Math.max(28, 50 - (n - 10) * 2);
     // Cluster neurons toward center so dendrites/connections stay in view
     for (let i = 0; i < n; i++) {
       let pos: Vec2, ok: boolean, tries = 0;
@@ -216,15 +315,18 @@ export class NeuralAnimPopup {
           y: margin + ry * (this.h - 2 * margin),
         };
         ok = this.neurons.every(
-          (q) => Math.hypot(q.pos.x - pos.x, q.pos.y - pos.y) > 50,
+          (q) => Math.hypot(q.pos.x - pos.x, q.pos.y - pos.y) > minSpacing,
         );
         tries++;
       } while (!ok && tries < 80);
+      // Soma radius scaled by region-specific neuron size
+      // Motor cortex Betz cells render ~2× larger than standard pyramidals
+      const baseRadius = 4 + Math.random() * 3;
       this.neurons.push({
         pos,
-        radius: 5 + Math.random() * 4,
+        radius: baseRadius * somaScale,
         phase: Math.random() * Math.PI * 2,
-        appearAt: i * 0.18,
+        appearAt: i * 0.14,
         lastFire: -10,
       });
     }
