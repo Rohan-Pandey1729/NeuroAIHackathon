@@ -13,17 +13,27 @@ const CHANNEL_COLORS = [
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML = `
-  <div id="header">
-    <h1>EEG Live Stream</h1>
-    <button id="record-session-btn" class="rec-btn rec-btn-primary">Record Session</button>
+  <div id="topbar">
+    <div id="topbar-left">
+      <h1>NeuralTrace</h1>
+      <span id="status-pill">
+        <span id="status-dot"></span>
+        <span id="status">Connecting...</span>
+      </span>
+      <span id="info"></span>
+    </div>
+    <button id="record-session-btn" class="rec-btn rec-btn-primary rec-btn-record">Record Session</button>
   </div>
-  <div id="status">Connecting...</div>
-  <div id="info"></div>
-  <div id="main-layout">
-    <div id="brain-container"></div>
+  <div id="dashboard">
+    <div id="brain-section">
+      <div id="brain-container"></div>
+    </div>
     <div id="right-panel">
       <div id="recorder-mount"></div>
-      <div id="channels"></div>
+      <div id="channels-section">
+        <div id="channels-header">EEG Channels</div>
+        <div id="channels"></div>
+      </div>
     </div>
   </div>
 `;
@@ -97,8 +107,8 @@ function renderChannels(count: number, channelNames: string[]): void {
 
     const canvas = document.createElement('canvas');
     canvas.id = `ch-${i}`;
-    canvas.width = 800;
-    canvas.height = 80;
+    canvas.width = 600;
+    canvas.height = 64;
 
     row.appendChild(label);
     row.appendChild(canvas);
