@@ -1,69 +1,108 @@
-# 🧠 NeuralTrace — Real-Time Learning Visualizer
+# NeuralTrace — Real-Time EEG Learning Visualizer
 
-> Visualize your brain forming new connections as you learn — powered by EEG and live neural signal processing.
+> Visualize your brain forming new connections as you learn — powered by live EEG and interactive 3D neural visualization.
 
 ![Status](https://img.shields.io/badge/status-hackathon--build-brightgreen)
-![Hardware](https://img.shields.io/badge/hardware-OpenBCI%20Ultracortex-blue)
-![Stack](https://img.shields.io/badge/stack-Python%20%7C%20WebSockets%20%7C%20Three.js-purple)
+![Hardware](https://img.shields.io/badge/hardware-OpenBCI%20Cyton-blue)
+![Stack](https://img.shields.io/badge/stack-Python%20%7C%20FastAPI%20%7C%20Three.js-purple)
 
 ---
 
 ## What is NeuralTrace?
 
-NeuralTrace reads live EEG signals from an OpenBCI Ultracortex Mark IV headset and renders a 3D brain visualization that reacts in real time to your cognitive state. As you engage in a learning task, the visualizer draws glowing arcs between brain regions when their activity becomes synchronized — the closest surface-EEG analog to "a new connection forming."
+NeuralTrace reads live EEG signals from an OpenBCI Cyton board and renders a real-time 3D brain visualization that glows in response to neural activity. It serves two audiences:
 
-The visualization is scientifically grounded in well-established EEG markers for learning:
+1. **Learners** — see your own brain activity while studying, compare techniques, and find which method produces the strongest learning-related neural signatures.
+2. **Educators** — use the interactive 3D brain and neural connection animations as a teaching tool for neuroscience concepts (action potentials, synapses, brain regions).
 
-| Signal | What it means | Visual effect |
-|---|---|---|
-| **Theta waves (4–8 Hz)** | Memory encoding, hippocampal activity | Arcs solidify between nodes |
-| **Gamma bursts (30–100 Hz)** | Active cognitive binding | Node pulses with a ripple |
-| **Cross-channel coherence** | Two brain regions firing in sync | New edge drawn between them |
-| **Engagement index** | Overall cognitive load rising | Neural density fog deepens |
+Click any glowing electrode region on the 3D brain to open an animated visualization of neural connections forming, complete with educational annotations explaining neurons, axons, dendrites, action potentials, and synapses — all driven by live EEG signal intensity.
+
+---
+
+## Features
+
+- **3D brain model** with 10 electrode positions mapped to the International 10-20 system, rendered with Three.js
+- **Live EEG streaming** from OpenBCI Cyton via BrainFlow, with FFT bandpass filtering (1-50 Hz)
+- **Per-channel waveform charts** with Y-axis magnitude labels and smooth interpolated updates
+- **Electrode glow** on the 3D brain surface scaled by real-time RMS amplitude
+- **Head orientation tracking** from the board's accelerometer
+- **Neural connection popup** — click any lit electrode to see an animated neural network forming, with firing rate driven by live EEG intensity
+- **Educational annotations** — the popup labels neurons, dendrites, axons, action potentials, and synapses, and describes the brain region's function
+- **Recording system** — record EEG sessions per user/technique, saved as CSV + metadata JSON
+- **Analysis engine** — compute learning metrics (theta power, gamma power, engagement index, coherence) and rank study techniques by composite score
 
 ---
 
 ## System Architecture
 
 ```
-OpenBCI Ultracortex Mark IV
-          ↓
-  OpenBCI GUI (LSL stream)
-          ↓
-  Python Backend
-  ├── brainflow  — reads EEG stream
-  ├── scipy / MNE  — band power + coherence matrix (every ~500ms)
-  └── websockets  — pushes JSON state to browser
-          ↓
-  Browser Visualizer
-  ├── Three.js  — 3D brain mesh + electrode nodes
-  ├── WebSocket client  — receives live signal updates
-  └── Animated edges, glows, and arcs
+OpenBCI Cyton Board (8 channels)
+          |
+    USB Serial
+          |
+  Python Backend (FastAPI + BrainFlow)
+  ├── server.py  — EEG streaming, WebSocket broadcast, recording API
+  └── analyze.py — Band power, coherence, composite learning score
+          |
+    WebSocket (ws://localhost:8000/ws)
+          |
+  Browser Frontend (Vite + TypeScript + Three.js)
+  ├── brain3d.ts      — 3D brain mesh, electrode glow shader, click raycasting
+  ├── neural-anim.ts  — Neural connection animation popup with edu annotations
+  ├── main.ts         — EEG chart rendering, smooth sample interpolation
+  ├── recorder-ui.ts  — Recording session UI
+  ├── socket.ts       — WebSocket client
+  └── api.ts          — REST API client for recording/analysis
 ```
 
 ---
 
 ## Hardware
 
-- **OpenBCI Ultracortex Mark IV EEG Headset** (16 channels, research-grade)
+- **OpenBCI Cyton Board** (8 EEG channels + 3-axis accelerometer)
+- **OpenBCI Ultracortex Mark IV** headset (or any compatible electrode cap)
 - Laptop/desktop running Python 3.10+
+
+### Electrode Wiring (10-20 mapping)
+
+| Cyton Pin | Electrode | Region |
+|-----------|-----------|--------|
+| N1P | F3 | Left Frontal |
+| N2P | F4 | Right Frontal |
+| N3P | C4 | Right Central |
+| N4P | C3 | Left Central |
+| N5P | T4 | Right Temporal |
+| N6P | T3 | Left Temporal |
+| N7P | P4 | Right Parietal |
+| N8P | P3 | Left Parietal |
+| SRB | A1/A2 | Ear references |
 
 ---
 
 ## Repo Structure
 
 ```
-neuraltrace/
+NeuralTrace/
 ├── backend/
-│   ├── stream.py          # LSL stream reader
-│   ├── processor.py       # Band power + coherence computation
-│   └── server.py          # WebSocket server
+│   ├── server.py          # FastAPI server: EEG stream, WebSocket, recording & analysis APIs
+│   ├── analyze.py         # EEG analysis: band power, coherence, composite learning score
+│   └── requirements.txt   # Python dependencies
 ├── frontend/
-│   ├── index.html
-│   ├── brain.js           # Three.js brain + node visualization
-│   └── socket.js          # WebSocket client + signal handler
-├── tasks/
-│   └── vocab_task.html    # Simple in-browser learning task for demos
+│   ├── src/
+│   │   ├── main.ts        # App entry: EEG charts with Y-axis, smooth interpolation
+│   │   ├── brain3d.ts     # Three.js 3D brain, electrode glow shader, click detection
+│   │   ├── neural-anim.ts # Neural connection animation popup + educational annotations
+│   │   ├── recorder-ui.ts # Recording session UI panel
+│   │   ├── socket.ts      # WebSocket client
+│   │   ├── api.ts         # REST API client
+│   │   └── style.css      # Styles
+│   ├── public/            # Static assets (brain.glb)
+│   ├── package.json
+│   └── vite.config.ts
+├── visualizer/
+│   └── index.html         # Connections visualizer page
+├── data/                  # Recorded EEG sessions (per user/technique)
+├── brain.glb              # 3D brain model
 ├── requirements.txt
 └── README.md
 ```
@@ -72,90 +111,68 @@ neuraltrace/
 
 ## Quickstart
 
-### 1. Install dependencies
+### 1. Install backend dependencies
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/neuraltrace.git
-cd neuraltrace
+cd backend
 pip install -r requirements.txt
 ```
 
-**requirements.txt**
-```
-brainflow
-numpy
-scipy
-mne
-websockets
-```
-
-### 2. Start the OpenBCI stream
-
-- Open **OpenBCI GUI**
-- Connect your Ultracortex headset
-- Start a **Lab Streaming Layer (LSL)** session
-- Keep the GUI running in the background
-
-### 3. Run the backend
+### 2. Install frontend dependencies
 
 ```bash
-python backend/server.py
+cd frontend
+npm install
 ```
 
-This reads from the LSL stream, computes band power and coherence every 500ms, and serves updates over WebSocket on `ws://localhost:8765`.
-
-### 4. Open the visualizer
+### 3. Start the backend
 
 ```bash
-# Just open in your browser
-open frontend/index.html
+python backend/server.py --serial-port /dev/tty.usbserial-XXXX
 ```
 
-Or serve it locally:
+Options:
+- `--board-id` — BrainFlow board ID (default: 0 for Cyton)
+- `--serial-port` — serial port for the Cyton dongle
+
+The backend starts streaming EEG on `http://127.0.0.1:8000` and serves the built frontend.
+
+### 4. Development mode (hot reload)
 
 ```bash
-python -m http.server 3000
-# then visit http://localhost:3000/frontend
+cd frontend
+npm run dev
 ```
+
+Then open `http://localhost:5173` (Vite dev server proxies API/WebSocket to the backend).
 
 ---
 
-## How the Visualization Works
+## Recording & Analysis
 
-1. **16 electrode positions** from the Ultracortex are mapped to nodes on a 3D brain mesh, grouped by region (frontal, temporal, parietal, occipital).
-2. Every 500ms, the backend computes a **coherence matrix** — how synchronized each pair of channels is.
-3. When coherence between two nodes crosses a threshold, a **glowing arc** animates between them.
-4. Sustained **theta activity** at Fz/Pz slowly solidifies arcs from dashed → solid (representing a "memory path").
-5. **Gamma bursts** at any node trigger an outward ripple pulse.
+### Recording a session
 
----
+1. Click **Record Session** in the UI
+2. Enter a username, technique name, and duration
+3. The system records all channels to `data/<user>/<technique>/` as CSV files + `meta.json`
 
-## Demo Setup
+### Analyzing techniques
 
-For a clean, repeatable demo:
+POST to `/api/analyze` with `{"user": "yourname"}` to get a ranked comparison of study techniques.
 
-1. Have the subject put on the headset and rest for 30 seconds (baseline)
-2. Open `tasks/vocab_task.html` — a simple vocabulary learning task
-3. Start the visualizer side-by-side
-4. Watch connections light up and solidify as learning occurs
+### Analysis Metrics
 
----
-
-## Analysis Metrics
-
-After recording EEG across study techniques, `analyze.py` computes the following metrics per technique and ranks them using a composite learning score.
-
-| Metric | What it measures | How it's calculated |
-|---|---|---|
-| **Frontal Theta Power** | Memory encoding activity | Average power in the 4–8 Hz (theta) band at F3/F4, estimated via Welch's PSD method |
-| **Frontal Gamma Power** | Active cognitive binding | Average power in the 30–50 Hz (gamma) band at F3/F4 |
-| **Engagement Index** | Sustained focused attention | `beta_power / (alpha_power + theta_power)` at frontal channels (beta=13–30 Hz, alpha=8–13 Hz) |
-| **F-P Theta Coherence** | Long-range memory network activation | Magnitude-squared coherence between frontal (F3/F4) and parietal (P3/P4) channels in the theta band (0=independent, 1=perfectly in sync) |
-| **F-T Theta Coherence** | Memory encoding circuit activation | Magnitude-squared coherence between frontal (F3/F4) and temporal (T3/T4) channels in the theta band |
+| Metric | What it measures |
+|---|---|
+| **Frontal Theta Power** | Memory encoding (4-8 Hz at F3/F4) |
+| **Frontal Gamma Power** | Cognitive binding (30-50 Hz at F3/F4) |
+| **Engagement Index** | Sustained attention: beta / (alpha + theta) |
+| **F-P Theta Coherence** | Frontal-parietal memory network sync |
+| **F-T Theta Coherence** | Frontal-temporal encoding circuit sync |
 
 ### Composite Learning Score
 
-The composite score is a weighted sum of all metrics, computed **relative to baseline** (resting state):
+Weighted sum of metrics relative to baseline:
 
 ```
 Score = 0.30 * frontal_theta
@@ -165,7 +182,19 @@ Score = 0.30 * frontal_theta
       + 0.10 * frontal_temporal_coherence
 ```
 
-Each value is the **% change from baseline**: `(technique - baseline) / baseline`. A higher score means that technique activated stronger learning-related neural signatures compared to resting state.
+---
+
+## Interactive Neural Visualization
+
+Clicking a glowing electrode on the 3D brain opens an animated popup showing neural connections forming in that region. The animation includes:
+
+- **Neurons (soma)** — glowing cell bodies that expand when receiving a signal
+- **Dendrites** — branching input fibers growing outward from each neuron
+- **Axons** — connection lines between neurons carrying signals
+- **Action potentials** — glowing particles traveling along axons; their speed is driven by the live EEG signal intensity from the clicked electrode
+- **Synapses** — junctions where connections form between neurons, shown as a flash of light
+
+The popup also displays educational information about the brain region (e.g., frontal lobe's role in planning and memory, temporal lobe's role in auditory processing).
 
 ---
 
@@ -173,6 +202,7 @@ Each value is the **% change from baseline**: `(technique - baseline) / baseline
 
 NeuralTrace does **not** claim to show individual synapses or neurons — this is physically impossible with surface EEG. What it shows is **functional connectivity** changing in real time, which is the standard neuroscientific proxy for learning-driven network reorganization. Theta-gamma coupling and inter-regional coherence are well-studied EEG signatures of memory encoding (Helfrich & Knight, 2016; Fell & Axmacher, 2011).
 
+The neural connection animation is an educational visualization, not a literal representation of the underlying biology.
 
 ---
 

@@ -29,7 +29,7 @@ TECHNIQUE_DESCRIPTIONS = {
     "active_recall": "Active Recall — Test yourself on the material without looking at notes",
     "feynman": "Feynman Technique — Explain the concept out loud as if teaching someone",
     "writing_notes": "Writing Notes — Write down key points and summaries by hand",
-    "music_vs_no_music": "Music vs No Music — Learn with background music playing",
+    "music_vs_no_music": "Music — Learn with background music playing",
 }
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"

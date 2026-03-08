@@ -8,6 +8,19 @@ const REGION_LABELS: Record<string, string> = {
   A1: 'Left Reference', A2: 'Right Reference',
 };
 
+const REGION_INFO: Record<string, string> = {
+  F3: 'Frontal Lobe — Crucial for high-level cognitive processing, planning, decision-making, and working memory. The left frontal region (F3) is particularly active during learning, language production, and logical reasoning.',
+  F4: 'Frontal Lobe — Crucial for high-level cognitive processing, planning, decision-making, and working memory. The right frontal region (F4) is associated with creativity, emotional regulation, and spatial reasoning.',
+  C3: 'Central Region — Associated with motor planning, sensorimotor integration, and motor learning. C3 covers the left motor/sensory cortex, governing right-side body movement and tactile processing.',
+  C4: 'Central Region — Associated with motor planning, sensorimotor integration, and motor learning. C4 covers the right motor/sensory cortex, governing left-side body movement and tactile processing.',
+  T3: 'Temporal Lobe — Involved in memory encoding, auditory processing, and language comprehension. The left temporal region (T3) plays a key role in verbal memory and speech understanding.',
+  T4: 'Temporal Lobe — Involved in memory encoding, auditory processing, and language comprehension. The right temporal region (T4) is important for musical perception and non-verbal memory.',
+  P3: 'Parietal Lobe — Responsible for integrating sensory information, spatial awareness, and attention. The left parietal region (P3) is involved in mathematical reasoning and reading.',
+  P4: 'Parietal Lobe — Responsible for integrating sensory information, spatial awareness, and attention. The right parietal region (P4) is important for spatial navigation and visuospatial processing.',
+  A1: 'Ear Reference (A1) — The left earlobe electrode serves as an electrically neutral reference point for measuring voltage differences across scalp electrodes.',
+  A2: 'Ear Reference (A2) — The right earlobe electrode serves as an electrically neutral reference point for measuring voltage differences across scalp electrodes.',
+};
+
 interface Vec2 { x: number; y: number }
 
 interface NeuronNode {
@@ -97,6 +110,27 @@ export class NeuralAnimPopup {
     this.canvas.className = 'neural-canvas';
     popup.appendChild(this.canvas);
 
+    // Legend row
+    const legend = document.createElement('div');
+    legend.className = 'neural-legend';
+    legend.innerHTML = [
+      `<span class="neural-legend-item"><span class="neural-legend-dot" style="background:${this.col(55)}"></span>Neuron (soma)</span>`,
+      `<span class="neural-legend-item"><span class="neural-legend-line" style="background:${this.col(35)}"></span>Dendrite</span>`,
+      `<span class="neural-legend-item"><span class="neural-legend-line" style="background:${this.col(45)}"></span>Axon</span>`,
+      `<span class="neural-legend-item"><span class="neural-legend-dot neural-legend-dot-bright" style="background:${this.col(80)}"></span>Action potential</span>`,
+      `<span class="neural-legend-item"><span class="neural-legend-dot neural-legend-dot-flash" style="background:${this.col(85)}"></span>Synapse</span>`,
+    ].join('');
+    popup.appendChild(legend);
+
+    // Region info
+    const regionInfo = REGION_INFO[name];
+    if (regionInfo) {
+      const info = document.createElement('div');
+      info.className = 'neural-region-info';
+      info.textContent = regionInfo;
+      popup.appendChild(info);
+    }
+
     const hint = document.createElement('div');
     hint.className = 'neural-hint';
     hint.textContent = 'Click outside or press Esc to close';
@@ -106,8 +140,9 @@ export class NeuralAnimPopup {
     document.body.appendChild(this.overlay);
 
     // Sizing
-    this.w = Math.min(720, window.innerWidth - 64);
-    this.h = Math.min(420, window.innerHeight - 180);
+    // this.w = Math.min(900, window.innerWidth - 64);
+    this.w = window.innerWidth - 64;
+    this.h = Math.min(450, window.innerHeight - 160);
     const dpr = window.devicePixelRatio;
     this.canvas.width = this.w * dpr;
     this.canvas.height = this.h * dpr;
@@ -417,6 +452,20 @@ export class NeuralAnimPopup {
       }
     }
 
+    // Canvas labels — subtle annotations that fade in as elements appear
+    this.drawLabels(ctx, t);
+
+    // Spontaneous firing driven by EEG intensity — more neurons light up with stronger signal
+    const fireChance = this.intensity * 0.08; // per neuron per frame (~0-8% at 60fps)
+    for (const n of this.neurons) {
+      const age = t - n.appearAt;
+      if (age < 0) continue;
+      const sinceLastFire = t - n.lastFire;
+      if (sinceLastFire > 0.4 && Math.random() < fireChance) {
+        n.lastFire = t;
+      }
+    }
+
     // Neurons (on top)
     for (const n of this.neurons) {
       const age = t - n.appearAt;
@@ -472,6 +521,148 @@ export class NeuralAnimPopup {
       }
     }
   };
+
+  private drawLabels(ctx: CanvasRenderingContext2D, t: number): void {
+    ctx.save();
+    ctx.font = '10px monospace';
+    ctx.textBaseline = 'middle';
+
+    const labelData: { text: string; target: Vec2; offset: Vec2; appearAt: number }[] = [];
+
+    const cx = this.w / 2;
+    const cy = this.h / 2;
+    // Helper: pick offset direction AWAY from canvas center, with a large magnitude
+    const awayOffset = (pos: Vec2, mag: number): Vec2 => {
+      const dx = pos.x - cx;
+      const dy = pos.y - cy;
+      const len = Math.hypot(dx, dy) || 1;
+      return { x: (dx / len) * mag, y: (dy / len) * mag };
+    };
+
+    // Gather candidate points for each label type, then greedily pick the most spread-out set
+    interface Candidate { text: string; target: Vec2; appearAt: number }
+    const groups: Candidate[][] = [];
+
+    // Group 0: Neuron (soma)
+    const neuronCands: Candidate[] = this.neurons.map(n => ({
+      text: 'Neuron (soma)', target: n.pos, appearAt: n.appearAt + 0.4,
+    }));
+    groups.push(neuronCands);
+
+    // Group 1: Dendrite
+    const dendCands: Candidate[] = this.dendrites.map(d => {
+      const tip = d.points[Math.min(4, d.points.length - 1)];
+      return { text: 'Dendrite', target: tip, appearAt: d.growStart + 0.6 };
+    });
+    groups.push(dendCands);
+
+    // Group 2: Axon (midpoints of connections)
+    const axonCands: Candidate[] = this.conns.map(c => {
+      const mid = bezier(this.neurons[c.a].pos, c.ctrl, this.neurons[c.b].pos, 0.5);
+      return { text: 'Axon', target: mid, appearAt: c.formAt + 0.3 };
+    });
+    groups.push(axonCands);
+
+    // Group 3: Action potential (at 0.3 along connections)
+    const apCands: Candidate[] = this.conns.map(c => {
+      const pt = bezier(this.neurons[c.a].pos, c.ctrl, this.neurons[c.b].pos, 0.3);
+      return { text: 'Action potential', target: pt, appearAt: c.formAt + 0.8 };
+    });
+    groups.push(apCands);
+
+    // Group 4: Synapse (destination neurons of connections)
+    const synCands: Candidate[] = this.conns.map(c => ({
+      text: 'Synapse', target: this.neurons[c.b].pos, appearAt: c.formAt + 0.1,
+    }));
+    groups.push(synCands);
+
+    // Greedy spread: for each group in order, pick the candidate furthest from all already-chosen points
+    const chosen: Vec2[] = [];
+    for (const cands of groups) {
+      if (cands.length === 0) continue;
+      let bestIdx = 0;
+      let bestMinDist = -1;
+      for (let i = 0; i < cands.length; i++) {
+        const p = cands[i].target;
+        // Minimum distance to any already-chosen label
+        let minD = Infinity;
+        for (const c of chosen) {
+          minD = Math.min(minD, Math.hypot(p.x - c.x, p.y - c.y));
+        }
+        if (chosen.length === 0) minD = Math.hypot(p.x - cx, p.y - cy); // first: pick furthest from center
+        if (minD > bestMinDist) {
+          bestMinDist = minD;
+          bestIdx = i;
+        }
+      }
+      const pick = cands[bestIdx];
+      chosen.push(pick.target);
+      labelData.push({
+        text: pick.text,
+        target: pick.target,
+        offset: awayOffset(pick.target, 45),
+        appearAt: pick.appearAt,
+      });
+    }
+
+    // Compute resolved label positions and push apart overlapping ones
+    const visible: { text: string; target: Vec2; lx: number; ly: number; alpha: number }[] = [];
+    for (const lb of labelData) {
+      const age = t - lb.appearAt;
+      if (age < 0) continue;
+      const alpha = Math.min(age / 0.5, 0.65);
+      visible.push({
+        text: lb.text,
+        target: lb.target,
+        lx: lb.target.x + lb.offset.x,
+        ly: lb.target.y + lb.offset.y,
+        alpha,
+      });
+    }
+
+    // Repel overlapping labels (iterate a few times for stability)
+    const MIN_GAP_X = 110; // minimum horizontal distance between label anchors
+    const MIN_GAP_Y = 18;  // minimum vertical distance
+    for (let iter = 0; iter < 5; iter++) {
+      for (let i = 0; i < visible.length; i++) {
+        for (let j = i + 1; j < visible.length; j++) {
+          const dx = visible[j].lx - visible[i].lx;
+          const dy = visible[j].ly - visible[i].ly;
+          const overlapX = Math.abs(dx) < MIN_GAP_X;
+          const overlapY = Math.abs(dy) < MIN_GAP_Y;
+          if (overlapX && overlapY) {
+            // Push apart vertically
+            const push = (MIN_GAP_Y - Math.abs(dy)) / 2 + 1;
+            if (dy >= 0) {
+              visible[i].ly -= push;
+              visible[j].ly += push;
+            } else {
+              visible[i].ly += push;
+              visible[j].ly -= push;
+            }
+          }
+        }
+      }
+    }
+
+    for (const lb of visible) {
+      // Connector line
+      ctx.beginPath();
+      ctx.moveTo(lb.target.x, lb.target.y);
+      ctx.lineTo(lb.lx, lb.ly);
+      ctx.strokeStyle = `rgba(255,255,255,${lb.alpha * 0.3})`;
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+
+      // Text
+      const leftOfTarget = lb.lx < lb.target.x;
+      ctx.textAlign = leftOfTarget ? 'right' : 'left';
+      ctx.fillStyle = `rgba(255,255,255,${lb.alpha})`;
+      ctx.fillText(lb.text, lb.lx + (leftOfTarget ? -4 : 4), lb.ly);
+    }
+
+    ctx.restore();
+  }
 
   close(): void {
     cancelAnimationFrame(this.animId);

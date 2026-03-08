@@ -5,7 +5,7 @@ const TECHNIQUES = [
   { id: 'active_recall', name: 'Active Recall', desc: 'Test yourself on the material without looking at notes' },
   { id: 'feynman', name: 'Feynman Technique', desc: 'Explain the concept out loud as if teaching someone' },
   { id: 'writing_notes', name: 'Writing Notes', desc: 'Write down key points and summaries by hand' },
-  { id: 'music_vs_no_music', name: 'Music vs No Music', desc: 'Learn with background music playing' },
+  { id: 'music_vs_no_music', name: 'Music', desc: 'Learn with background music playing' },
 ];
 
 const BASELINE_DURATION = 30;
