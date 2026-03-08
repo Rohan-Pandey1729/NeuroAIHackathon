@@ -211,81 +211,76 @@ export class BrainScene {
         uElectrodeIntensity: { value: intArr },
       };
 
-      const mat = new THREE.MeshPhysicalMaterial({
-        color: 0x0d3050,
-        roughness: 0.6,
-        metalness: 0.0,
-        transparent: true,
-        opacity: 0.25,
-        side: THREE.DoubleSide,
-        emissive: new THREE.Color(0x0a3050),
-        emissiveIntensity: 0.2,
-        depthWrite: false,
-      });
-      mat.clippingPlanes = [];
+      const makeMaterial = (side: THREE.Side) => {
+        const mat = new THREE.MeshPhysicalMaterial({
+          color: 0x0d3050,
+          roughness: 0.6,
+          metalness: 0.0,
+          transparent: true,
+          opacity: 0.25,
+          side,
+          emissive: new THREE.Color(0x0a3050),
+          emissiveIntensity: 0.2,
+          depthWrite: true,
+        });
+        mat.clippingPlanes = [];
+        return mat;
+      };
 
-      mat.onBeforeCompile = (shader) => {
+      const applyShader = (mat: THREE.MeshPhysicalMaterial) => {
+        mat.onBeforeCompile = (shader) => {
         shader.uniforms.uElectrodeDir = uniforms.uElectrodeDir;
         shader.uniforms.uElectrodeColor = uniforms.uElectrodeColor;
         shader.uniforms.uElectrodeIntensity = uniforms.uElectrodeIntensity;
 
-          shader.vertexShader = shader.vertexShader.replace(
-            '#include <common>',
-            `#include <common>
+        shader.vertexShader = shader.vertexShader.replace(
+          '#include <common>',
+          `#include <common>
 varying vec3 vObjPos;
 varying vec3 vWorldNormal;
 varying vec3 vWorldPosition;`
-          );
-          shader.vertexShader = shader.vertexShader.replace(
-            '#include <begin_vertex>',
-            `#include <begin_vertex>
+        );
+        shader.vertexShader = shader.vertexShader.replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
 vObjPos = transformed;`
-          );
-          shader.vertexShader = shader.vertexShader.replace(
-            '#include <worldpos_vertex>',
-            `#include <worldpos_vertex>
+        );
+        shader.vertexShader = shader.vertexShader.replace(
+          '#include <worldpos_vertex>',
+          `#include <worldpos_vertex>
 vWorldNormal = normalize((modelMatrix * vec4(objectNormal, 0.0)).xyz);
 vWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;`
-          );
+        );
 
-          shader.fragmentShader = shader.fragmentShader.replace(
-            '#include <common>',
-            `#include <common>
+        shader.fragmentShader = shader.fragmentShader.replace(
+          '#include <common>',
+          `#include <common>
 uniform vec3 uElectrodeDir[${NUM_ELECTRODES}];
 uniform vec3 uElectrodeColor[${NUM_ELECTRODES}];
 uniform float uElectrodeIntensity[${NUM_ELECTRODES}];
 varying vec3 vObjPos;
 varying vec3 vWorldNormal;
 varying vec3 vWorldPosition;`
-          );
+        );
 
-          shader.fragmentShader = shader.fragmentShader.replace(
-            '#include <emissivemap_fragment>',
-            `#include <emissivemap_fragment>
+        shader.fragmentShader = shader.fragmentShader.replace(
+          '#include <emissivemap_fragment>',
+          `#include <emissivemap_fragment>
 
-// ── Fresnel edge glow (hologram look) ──
 vec3 viewDir = normalize(cameraPosition - vWorldPosition);
 float fresnel = 1.0 - abs(dot(viewDir, normalize(vWorldNormal)));
 fresnel = pow(fresnel, 1.8);
-vec3 edgeColor = vec3(0.15, 0.75, 0.95); // cyan hologram edge
-totalEmissiveRadiance += edgeColor * fresnel * 0.2;
+vec3 edgeColor = vec3(0.15, 0.75, 0.95);
+totalEmissiveRadiance += edgeColor * fresnel * 0.3;
 
-// Subtle scan-line effect
-// float scanLine = sin(vObjPos.y * 120.0) * 0.5 + 0.5;
-// scanLine = smoothstep(0.3, 0.7, scanLine);
-// totalEmissiveRadiance += edgeColor * scanLine * fresnel * 0.15;
-
-// ── Depth mask: outer cortex gets glow, inner folds fade out ──
 float vertDepth = length(vWorldPosition);
 float outerMask = smoothstep(0.05, 0.2, vertDepth);
 
-// ── Electrode glow — world-space directions for consistency across meshes ──
 vec3 vertDir = normalize(vWorldPosition);
 vec3 glow = vec3(0.0);
 float totalWeight = 0.0;
 for (int i = 0; i < ${NUM_ELECTRODES}; i++) {
   float alignment = dot(vertDir, uElectrodeDir[i]);
-  // Tight core with a subtle outer halo
   float core = smoothstep(0.82, 0.92, alignment);
   float halo = smoothstep(0.65, 0.82, alignment) * 0.15;
   float falloff = core + halo;
@@ -295,15 +290,12 @@ for (int i = 0; i < ${NUM_ELECTRODES}; i++) {
 }
 if (totalWeight > 1.0) glow /= totalWeight;
 float glowStrength = min(totalWeight, 1.0);
-// Store glow for post-tonemapping application (avoid ACES desaturation)
-vec3 electrodeGlow = glow * glowStrength * 0.8;`
-          );
+vec3 electrodeGlow = glow * glowStrength * 0.6;`
+        );
 
-          // Apply glow color AFTER tone mapping to preserve saturation
-          shader.fragmentShader = shader.fragmentShader.replace(
-            '#include <opaque_fragment>',
-            `#include <opaque_fragment>
-// Apply electrode glow after tone mapping so colors stay saturated
+        shader.fragmentShader = shader.fragmentShader.replace(
+          '#include <opaque_fragment>',
+          `#include <opaque_fragment>
 vec3 vertDir2 = normalize(vWorldPosition);
 float regionAlpha = 0.0;
 for (int i = 0; i < ${NUM_ELECTRODES}; i++) {
@@ -312,18 +304,28 @@ for (int i = 0; i < ${NUM_ELECTRODES}; i++) {
   regionAlpha = max(regionAlpha, uElectrodeIntensity[i] * core);
 }
 gl_FragColor.rgb += electrodeGlow;
-// Inner brain folds: make more transparent so outer colored cortex shows through
 float depth2 = length(vWorldPosition);
 float outerFactor = smoothstep(0.05, 0.2, depth2);
-gl_FragColor.a *= mix(0.25, 1.0, outerFactor);
-// Make active regions nearly opaque so glow doesn't depend on layer stacking
-gl_FragColor.a = mix(gl_FragColor.a, 1.0, regionAlpha);`
-          );
-        };
+gl_FragColor.a *= mix(0.25, 0.8, outerFactor);
+gl_FragColor.a = mix(gl_FragColor.a, 0.8, regionAlpha);`
+        );
+      };
+      };
 
-      const brainMesh = new THREE.Mesh(merged, mat);
-      this.brainGroup.add(brainMesh);
-      this.brainModel = brainMesh;
+      // Two-pass rendering: back faces first, then front faces (no sorting needed)
+      const backMat = makeMaterial(THREE.BackSide);
+      applyShader(backMat);
+      const backMesh = new THREE.Mesh(merged, backMat);
+      backMesh.renderOrder = 0;
+      this.brainGroup.add(backMesh);
+
+      const frontMat = makeMaterial(THREE.FrontSide);
+      applyShader(frontMat);
+      const frontMesh = new THREE.Mesh(merged, frontMat);
+      frontMesh.renderOrder = 1;
+      this.brainGroup.add(frontMesh);
+
+      this.brainModel = frontMesh;
 
       const labelRadius = 70 * scale;
       this.createLabels(labelRadius);
@@ -356,8 +358,9 @@ gl_FragColor.a = mix(gl_FragColor.a, 1.0, regionAlpha);`
     ctx.fillText(text, 64, 32);
 
     const texture = new THREE.CanvasTexture(canvas);
-    const mat = new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: 0.9 });
+    const mat = new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: 0.9, depthTest: false });
     const sprite = new THREE.Sprite(mat);
+    sprite.renderOrder = 2;
     sprite.scale.set(0.15, 0.075, 1);
     return sprite;
   }
@@ -414,7 +417,6 @@ gl_FragColor.a = mix(gl_FragColor.a, 1.0, regionAlpha);`
     this.brainGroup.rotation.set(this.currentRotX, this.spinAngle, this.currentRotZ);
 
     // Rotate electrode directions from brain-local to world space
-    // so the shader's world-space vertDir matches consistently
     const q = this.brainGroup.quaternion;
     for (let i = 0; i < NUM_ELECTRODES; i++) {
       const off = i * 3;
