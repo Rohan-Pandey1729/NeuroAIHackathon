@@ -2,7 +2,6 @@ import argparse
 import asyncio
 import csv
 import json
-import signal
 import sys
 import time
 from contextlib import asynccontextmanager
@@ -329,19 +328,17 @@ if __name__ == "__main__":
     board_id = args.board_id
     serial_port = args.serial_port
 
-    def graceful_exit(signum, frame):
-        print("\nShutting down gracefully...")
-        if board is not None:
-            try:
-                board.stop_stream()
-                board.release_session()
-                print("Board session released")
-            except Exception:
-                pass
-        sys.exit(0)
-
-    signal.signal(signal.SIGINT, graceful_exit)
-    signal.signal(signal.SIGTERM, graceful_exit)
-
-    print(f"Serving on http://127.0.0.1:8000")
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    # Restart loop: Ctrl+C stops the board gracefully via lifespan cleanup,
+    # then the server automatically restarts. Double Ctrl+C to fully exit.
+    while True:
+        try:
+            print(f"\nServing on http://127.0.0.1:8000  (Ctrl+C to restart, double Ctrl+C to quit)")
+            uvicorn.run(app, host="127.0.0.1", port=8000)
+        except KeyboardInterrupt:
+            pass
+        print("\nRestarting server in 2 seconds... (Ctrl+C again to quit)")
+        try:
+            time.sleep(2)
+        except KeyboardInterrupt:
+            print("\nExiting.")
+            sys.exit(0)
