@@ -90,6 +90,216 @@ canvas {
   border-radius: 2px;
 }
 
+/* Header layout */
+#header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+#header h1 {
+  margin-bottom: 0;
+}
+
+/* Recorder panel */
+.recorder-panel {
+  margin-bottom: 1.5rem;
+}
+
+.rec-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 2rem;
+  max-width: 480px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.rec-card-wide {
+  max-width: 720px;
+}
+
+.rec-card h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.3em;
+}
+
+.rec-subtitle {
+  color: #aaa;
+  font-size: 0.85em;
+  margin: 0 0 1.25rem;
+}
+
+.rec-session-info {
+  display: flex;
+  gap: 1.5rem;
+  justify-content: center;
+  color: #888;
+  font-size: 0.8em;
+  margin-bottom: 1.25rem;
+}
+
+.rec-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.rec-form label {
+  font-size: 0.8em;
+  color: #aaa;
+  text-align: left;
+}
+
+.rec-form input {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.9em;
+  outline: none;
+}
+
+.rec-form input:focus {
+  border-color: #36a2eb;
+}
+
+.rec-btn {
+  font-family: inherit;
+  font-size: 0.85em;
+  padding: 0.5rem 1.25rem;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.rec-btn-primary {
+  background: #36a2eb;
+  color: #fff;
+  font-weight: 600;
+}
+
+.rec-btn-primary:hover {
+  background: #2b8cd4;
+}
+
+.rec-btn-record {
+  font-size: 1em;
+  padding: 0.75rem 2rem;
+}
+
+.rec-btn-ghost {
+  background: transparent;
+  color: #888;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.rec-btn-ghost:hover {
+  color: #ccc;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Progress dots */
+.rec-progress {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  margin-bottom: 1rem;
+}
+
+.rec-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.rec-dot.done {
+  background: #4bc0c0;
+}
+
+.rec-dot.active {
+  background: #36a2eb;
+  box-shadow: 0 0 6px #36a2eb;
+}
+
+/* Countdown */
+.rec-countdown {
+  font-size: 2.5em;
+  font-weight: 700;
+  margin: 1rem 0;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Recording status */
+.rec-recording-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #ff6384;
+  font-size: 0.85em;
+}
+
+.rec-pulse {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ff6384;
+  animation: rec-pulse-anim 1s ease-in-out infinite;
+}
+
+@keyframes rec-pulse-anim {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* Results table */
+.rec-table-wrap {
+  overflow-x: auto;
+}
+
+.rec-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8em;
+  text-align: left;
+}
+
+.rec-table th {
+  color: #888;
+  font-weight: 600;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.rec-table td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.rec-table tr.rec-best td {
+  color: #4bc0c0;
+  font-weight: 600;
+}
+
+.rec-badge {
+  background: #4bc0c0;
+  color: #1a1a2e;
+  font-size: 0.7em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 700;
+  vertical-align: middle;
+}
+
 @media (max-width: 900px) {
   #main-layout {
     flex-direction: column;

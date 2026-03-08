@@ -2,6 +2,7 @@ import './style.css'
 import { onEegData } from './socket.ts'
 import type { EegMessage } from './socket.ts'
 import { BrainScene } from './brain3d.ts'
+import { RecorderUI } from './recorder-ui.ts'
 
 const CHANNEL_COLORS = [
   '#ff6384', '#36a2eb', '#ffce56', '#4bc0c0',
@@ -11,14 +12,34 @@ const CHANNEL_COLORS = [
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML = `
-  <h1>EEG Live Stream</h1>
+  <div id="header">
+    <h1>EEG Live Stream</h1>
+    <button id="record-session-btn" class="rec-btn rec-btn-primary">Record Session</button>
+  </div>
   <div id="status">Connecting...</div>
   <div id="info"></div>
+  <div id="recorder-mount"></div>
   <div id="main-layout">
     <div id="brain-container"></div>
     <div id="channels"></div>
   </div>
 `;
+
+// Record Session button
+let activeRecorder: RecorderUI | null = null;
+document.querySelector<HTMLButtonElement>('#record-session-btn')!.addEventListener('click', () => {
+  if (activeRecorder) return;
+  const mount = document.querySelector<HTMLDivElement>('#recorder-mount')!;
+  activeRecorder = new RecorderUI(mount);
+  // Clean up reference when panel is removed from DOM
+  const observer = new MutationObserver(() => {
+    if (!mount.querySelector('#recorder-panel')) {
+      activeRecorder = null;
+      observer.disconnect();
+    }
+  });
+  observer.observe(mount, { childList: true });
+});
 
 const statusEl = document.querySelector<HTMLDivElement>('#status')!;
 const infoEl = document.querySelector<HTMLDivElement>('#info')!;
