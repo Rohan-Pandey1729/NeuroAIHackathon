@@ -256,13 +256,13 @@ totalEmissiveRadiance += glow * min(totalWeight, 1.0) * 0.4;`
   updateAccel(accel: number[]): void {
     if (accel.length < 3) return;
     const [ax, ay, az] = accel;
-    // // Reject synthetic data: real accel has gravity dominant on one axis,
-    // // synthetic board outputs ~equal values on all axes
-    // const max = Math.max(Math.abs(ax), Math.abs(ay), Math.abs(az));
-    // const min = Math.min(Math.abs(ax), Math.abs(ay), Math.abs(az));
-    // if (max - min < 0.3) return;
-    this.targetRotX = -Math.atan2(ay, az);
-    this.targetRotZ = Math.atan2(ax, az);
+    // Cyton on head: X=lateral, Y=anterior/posterior, Z=up (gravity ~1g)
+    // Pitch (nodding forward/back) = tilt around X axis from Y vs Z
+    // Roll  (ear to shoulder)      = tilt around Z axis from X vs Z
+    const g = Math.sqrt(ax * ax + ay * ay + az * az);
+    if (g < 0.3) return; // reject near-zero readings
+    this.targetRotX = Math.atan2(ay, az);   // pitch: nod forward = tilt brain forward
+    this.targetRotZ = -Math.atan2(ax, az);  // roll: tilt right = tilt brain right
   }
 
   private handleResize(container: HTMLElement): void {

@@ -2,6 +2,8 @@ import argparse
 import asyncio
 import csv
 import json
+import signal
+import sys
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -326,6 +328,20 @@ if __name__ == "__main__":
 
     board_id = args.board_id
     serial_port = args.serial_port
+
+    def graceful_exit(signum, frame):
+        print("\nShutting down gracefully...")
+        if board is not None:
+            try:
+                board.stop_stream()
+                board.release_session()
+                print("Board session released")
+            except Exception:
+                pass
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, graceful_exit)
+    signal.signal(signal.SIGTERM, graceful_exit)
 
     print(f"Serving on http://127.0.0.1:8000")
     uvicorn.run(app, host="127.0.0.1", port=8000)
