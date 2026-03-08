@@ -136,10 +136,15 @@ export class BrainScene {
           uGlowSharpness: { value: 10.0 },
         };
 
-        const mat = new THREE.MeshStandardMaterial({
-          color: 0xd4b8b0,
-          roughness: 0.6,
-          metalness: 0.05,
+        const mat = new THREE.MeshPhysicalMaterial({
+          color: 0xc8c8c8,
+          roughness: 0.3,
+          metalness: 0.0,
+          transmission: 0.6,
+          thickness: 1.0,
+          ior: 1.2,
+          transparent: true,
+          side: THREE.DoubleSide,
         });
 
         mat.onBeforeCompile = (shader) => {
