@@ -79,10 +79,13 @@ const AXIS_WIDTH = 48; // px reserved for Y-axis labels
 const channelBuffers: number[][] = [];
 const pendingQueues: number[][] = []; // incoming samples waiting to be dripped in
 
-// Smoothed Y-axis range per channel (avoids jumpy rescaling)
+// Smoothed Y-axis range per channel using critically-damped spring
 const smoothMin: number[] = [];
 const smoothMax: number[] = [];
-const RANGE_SMOOTH = 0.15; // lerp factor per frame toward target range
+const smoothMinVel: number[] = []; // velocity for spring
+const smoothMaxVel: number[] = [];
+const SPRING_FREQ = 6.0;  // natural frequency (higher = faster settle)
+const SPRING_DT = 1 / 60; // assume ~60fps
 
 // Current 10-20 channel names from the server
 let currentChannelNames: string[] = [];
@@ -152,13 +155,26 @@ function drawChannel(index: number, samples: number[]): void {
   const targetMin = dataMin - pad;
   const targetMax = dataMax + pad;
 
-  // Smoothly interpolate axis range
+  // Critically-damped spring for axis range (smooth ease-out settle)
   if (smoothMin[index] === undefined) {
     smoothMin[index] = targetMin;
     smoothMax[index] = targetMax;
+    smoothMinVel[index] = 0;
+    smoothMaxVel[index] = 0;
   } else {
-    smoothMin[index] += (targetMin - smoothMin[index]) * RANGE_SMOOTH;
-    smoothMax[index] += (targetMax - smoothMax[index]) * RANGE_SMOOTH;
+    const omega = 2 * Math.PI * SPRING_FREQ;
+    // Critically-damped: zeta = 1, so damping = 2 * omega
+    const damp = 2 * omega;
+
+    // Min spring
+    const errMin = targetMin - smoothMin[index];
+    smoothMinVel[index] += (omega * omega * errMin - damp * smoothMinVel[index]) * SPRING_DT;
+    smoothMin[index] += smoothMinVel[index] * SPRING_DT;
+
+    // Max spring
+    const errMax = targetMax - smoothMax[index];
+    smoothMaxVel[index] += (omega * omega * errMax - damp * smoothMaxVel[index]) * SPRING_DT;
+    smoothMax[index] += smoothMaxVel[index] * SPRING_DT;
   }
   const sMin = smoothMin[index];
   const sMax = smoothMax[index];
@@ -197,15 +213,36 @@ function drawChannel(index: number, samples: number[]): void {
   ctx.fillText('µV', 2, 8);
   ctx.restore();
 
-  // ── Waveform ──
+  // ── Waveform (Catmull-Rom spline) ──
   ctx.strokeStyle = CHANNEL_COLORS[index % CHANNEL_COLORS.length];
   ctx.lineWidth = 1.5;
   ctx.beginPath();
-  for (let i = 0; i < samples.length; i++) {
-    const x = plotLeft + (i / (samples.length - 1)) * plotWidth;
-    const y = height - ((samples[i] - sMin) / sRange) * height;
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
+
+  const n = samples.length;
+  const toX = (i: number) => plotLeft + (i / (n - 1)) * plotWidth;
+  const toY = (i: number) => height - ((samples[i] - sMin) / sRange) * height;
+
+  ctx.moveTo(toX(0), toY(0));
+
+  for (let i = 0; i < n - 1; i++) {
+    // Catmull-Rom uses 4 control points: p0, p1, p2, p3
+    // Clamp at boundaries
+    const i0 = Math.max(i - 1, 0);
+    const i1 = i;
+    const i2 = Math.min(i + 1, n - 1);
+    const i3 = Math.min(i + 2, n - 1);
+
+    const x1 = toX(i1), y1 = toY(i1);
+    const x2 = toX(i2), y2 = toY(i2);
+
+    // Convert Catmull-Rom to cubic bezier control points
+    // Tension factor 0 = standard Catmull-Rom
+    const cp1x = x1 + (toX(i2) - toX(i0)) / 6;
+    const cp1y = y1 + (toY(i2) - toY(i0)) / 6;
+    const cp2x = x2 - (toX(i3) - toX(i1)) / 6;
+    const cp2y = y2 - (toY(i3) - toY(i1)) / 6;
+
+    ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x2, y2);
   }
   ctx.stroke();
 }
