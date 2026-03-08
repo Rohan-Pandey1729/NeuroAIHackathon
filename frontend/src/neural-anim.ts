@@ -124,6 +124,8 @@ export class NeuralAnimPopup {
   private populationCloud: THREE.Points | null = null;
   private populationCount = 0;
   private scaleLabel: CSS2DObject | null = null;
+  private popSlider: HTMLInputElement | null = null;
+  private popSliderValueEl: HTMLSpanElement | null = null;
 
   // Shared textures
   private glowTex: THREE.Texture;
@@ -161,6 +163,30 @@ export class NeuralAnimPopup {
     this.threeContainer.className = 'neural-canvas';
     this.threeContainer.style.overflow = 'hidden';
     popup.appendChild(this.threeContainer);
+
+    // Population density slider
+    const sliderRow = document.createElement('div');
+    sliderRow.className = 'neural-slider-row';
+    const sliderLabel = document.createElement('span');
+    sliderLabel.className = 'neural-slider-label';
+    sliderLabel.textContent = 'Population scale';
+    this.popSlider = document.createElement('input');
+    this.popSlider.type = 'range';
+    this.popSlider.className = 'neural-slider';
+    this.popSlider.min = '50';
+    this.popSlider.max = String(NeuralAnimPopup.MAX_POP_PARTICLES);
+    this.popSlider.step = '10';
+    this.popSlider.value = '500';
+    this.popSliderValueEl = document.createElement('span');
+    this.popSliderValueEl.className = 'neural-slider-value';
+    this.popSlider.addEventListener('input', () => {
+      this.populationCount = parseInt(this.popSlider!.value);
+      this.applyPopulationSlider();
+    });
+    sliderRow.appendChild(sliderLabel);
+    sliderRow.appendChild(this.popSlider);
+    sliderRow.appendChild(this.popSliderValueEl);
+    popup.appendChild(sliderRow);
 
     // Legend
     const legend = document.createElement('div');
@@ -282,7 +308,7 @@ export class NeuralAnimPopup {
     this.intensity = Math.min(rms_uV / 80, 1.0);
     this.estimate = estimateNeuralPopulation(rms_uV, this.regionName);
     this.updateBiophysPanel();
-    this.updatePopulationCount();
+    this.updateScaleLabel();
   }
 
   updateIntensity(v: number): void {
@@ -662,6 +688,7 @@ export class NeuralAnimPopup {
     this.updatePopulationCount();
   }
 
+  /** Called once on init to set the model-derived default count + slider position. */
   private updatePopulationCount(): void {
     const active = this.estimate.activeNeurons;
     const MAX = NeuralAnimPopup.MAX_POP_PARTICLES;
@@ -669,17 +696,31 @@ export class NeuralAnimPopup {
     this.populationCount = Math.round(
       Math.max(50, Math.min(MAX, Math.sqrt(active / 2))),
     );
+    if (this.popSlider) this.popSlider.value = String(this.populationCount);
+    this.applyPopulationSlider();
+  }
 
+  /** Apply current populationCount to the cloud draw range + labels. */
+  private applyPopulationSlider(): void {
     if (this.populationCloud) {
       this.populationCloud.geometry.setDrawRange(0, this.populationCount);
     }
+    this.updateScaleLabel();
+  }
 
+  /** Refresh the in-scene scale label and slider value display. */
+  private updateScaleLabel(): void {
+    const active = this.estimate.activeNeurons;
     if (this.scaleLabel) {
-      const ratio = active > 0 ? Math.round(active / this.populationCount) : 0;
+      const ratio = active > 0 && this.populationCount > 0
+        ? Math.round(active / this.populationCount) : 0;
       this.scaleLabel.element.innerHTML =
         `<span style="color:rgba(100,200,255,0.9);font-weight:700">~${formatNeuronCount(active)}</span> ` +
         `neurons firing synchronously` +
         `<br><span style="opacity:0.5">each dot ≈ ${formatNeuronCount(ratio)} neurons</span>`;
+    }
+    if (this.popSliderValueEl) {
+      this.popSliderValueEl.textContent = `${this.populationCount} dots`;
     }
   }
 

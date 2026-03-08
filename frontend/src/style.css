@@ -677,6 +677,67 @@ canvas {
   text-align: center;
 }
 
+/* Population scale slider */
+.neural-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 0.5rem;
+  padding: 0 2px;
+}
+
+.neural-slider-label {
+  font-size: 0.7em;
+  color: rgba(255, 255, 255, 0.45);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.neural-slider {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  outline: none;
+  cursor: pointer;
+}
+
+.neural-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: rgba(100, 200, 255, 0.8);
+  border: 2px solid rgba(100, 200, 255, 0.3);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.neural-slider::-webkit-slider-thumb:hover {
+  background: rgba(100, 200, 255, 1);
+}
+
+.neural-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: rgba(100, 200, 255, 0.8);
+  border: 2px solid rgba(100, 200, 255, 0.3);
+  cursor: pointer;
+}
+
+.neural-slider-value {
+  font-size: 0.65em;
+  color: rgba(100, 200, 255, 0.7);
+  font-family: monospace;
+  min-width: 60px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
 .neural-hint {
   text-align: center;
   font-size: 0.7em;
