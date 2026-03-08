@@ -1,0 +1,27 @@
+{
+  "user": "swati",
+  "technique": "feynman",
+  "duration_seconds": 90,
+  "sample_rate": 250,
+  "channels_recorded": [
+    "F3",
+    "F4",
+    "C4",
+    "C3",
+    "T4",
+    "T3",
+    "P4",
+    "P3"
+  ],
+  "total_samples_per_channel": {
+    "F3": 5044,
+    "F4": 5044,
+    "C4": 5044,
+    "C3": 5044,
+    "T4": 5044,
+    "T3": 5044,
+    "P4": 5044,
+    "P3": 5044
+  },
+  "recorded_at": "2026-03-07 17:38:20"
+}

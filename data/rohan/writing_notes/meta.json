@@ -1,0 +1,27 @@
+{
+  "user": "rohan",
+  "technique": "writing_notes",
+  "duration_seconds": 90,
+  "sample_rate": 250,
+  "channels_recorded": [
+    "F3",
+    "F4",
+    "C4",
+    "C3",
+    "T4",
+    "T3",
+    "P4",
+    "P3"
+  ],
+  "total_samples_per_channel": {
+    "F3": 3120,
+    "F4": 3120,
+    "C4": 3120,
+    "C3": 3120,
+    "T4": 3120,
+    "T3": 3120,
+    "P4": 3120,
+    "P3": 3120
+  },
+  "recorded_at": "2026-03-07 18:09:41"
+}

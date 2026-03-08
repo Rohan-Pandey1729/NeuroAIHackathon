@@ -1,0 +1,27 @@
+{
+  "user": "eric",
+  "technique": "music_vs_no_music",
+  "duration_seconds": 90,
+  "sample_rate": 250,
+  "channels_recorded": [
+    "F3",
+    "F4",
+    "C4",
+    "C3",
+    "T4",
+    "T3",
+    "P4",
+    "P3"
+  ],
+  "total_samples_per_channel": {
+    "F3": 21909,
+    "F4": 21909,
+    "C4": 21909,
+    "C3": 21909,
+    "T4": 21909,
+    "T3": 21909,
+    "P4": 21909,
+    "P3": 21909
+  },
+  "recorded_at": "2026-03-07 18:39:23"
+}

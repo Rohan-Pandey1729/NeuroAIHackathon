@@ -1,0 +1,27 @@
+{
+  "user": "tony",
+  "technique": "feynman",
+  "duration_seconds": 90,
+  "sample_rate": 250,
+  "channels_recorded": [
+    "F3",
+    "F4",
+    "C4",
+    "C3",
+    "T4",
+    "T3",
+    "P4",
+    "P3"
+  ],
+  "total_samples_per_channel": {
+    "F3": 3497,
+    "F4": 3497,
+    "C4": 3497,
+    "C3": 3497,
+    "T4": 3497,
+    "T3": 3497,
+    "P4": 3497,
+    "P3": 3497
+  },
+  "recorded_at": "2026-03-07 17:49:43"
+}

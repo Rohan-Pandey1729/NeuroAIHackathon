@@ -1,0 +1,27 @@
+{
+  "user": "swati",
+  "technique": "music_vs_no_music",
+  "duration_seconds": 90,
+  "sample_rate": 250,
+  "channels_recorded": [
+    "F3",
+    "F4",
+    "C4",
+    "C3",
+    "T4",
+    "T3",
+    "P4",
+    "P3"
+  ],
+  "total_samples_per_channel": {
+    "F3": 2331,
+    "F4": 2331,
+    "C4": 2331,
+    "C3": 2331,
+    "T4": 2331,
+    "T3": 2331,
+    "P4": 2331,
+    "P3": 2331
+  },
+  "recorded_at": "2026-03-07 17:41:55"
+}

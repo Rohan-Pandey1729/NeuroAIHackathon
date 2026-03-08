@@ -1,0 +1,27 @@
+{
+  "user": "tony",
+  "technique": "active_recall",
+  "duration_seconds": 90,
+  "sample_rate": 250,
+  "channels_recorded": [
+    "F3",
+    "F4",
+    "C4",
+    "C3",
+    "T4",
+    "T3",
+    "P4",
+    "P3"
+  ],
+  "total_samples_per_channel": {
+    "F3": 7072,
+    "F4": 7072,
+    "C4": 7072,
+    "C3": 7072,
+    "T4": 7072,
+    "T3": 7072,
+    "P4": 7072,
+    "P3": 7072
+  },
+  "recorded_at": "2026-03-07 17:47:33"
+}

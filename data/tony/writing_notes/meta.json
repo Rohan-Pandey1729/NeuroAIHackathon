@@ -1,0 +1,27 @@
+{
+  "user": "tony",
+  "technique": "writing_notes",
+  "duration_seconds": 90,
+  "sample_rate": 250,
+  "channels_recorded": [
+    "F3",
+    "F4",
+    "C4",
+    "C3",
+    "T4",
+    "T3",
+    "P4",
+    "P3"
+  ],
+  "total_samples_per_channel": {
+    "F3": 2372,
+    "F4": 2372,
+    "C4": 2372,
+    "C3": 2372,
+    "T4": 2372,
+    "T3": 2372,
+    "P4": 2372,
+    "P3": 2372
+  },
+  "recorded_at": "2026-03-07 17:51:31"
+}

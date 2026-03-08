@@ -1,0 +1,27 @@
+{
+  "user": "rohan",
+  "technique": "active_recall",
+  "duration_seconds": 90,
+  "sample_rate": 250,
+  "channels_recorded": [
+    "F3",
+    "F4",
+    "C4",
+    "C3",
+    "T4",
+    "T3",
+    "P4",
+    "P3"
+  ],
+  "total_samples_per_channel": {
+    "F3": 2006,
+    "F4": 2006,
+    "C4": 2006,
+    "C3": 2006,
+    "T4": 2006,
+    "T3": 2006,
+    "P4": 2006,
+    "P3": 2006
+  },
+  "recorded_at": "2026-03-07 18:06:20"
+}

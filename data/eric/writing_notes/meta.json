@@ -1,0 +1,27 @@
+{
+  "user": "eric",
+  "technique": "writing_notes",
+  "duration_seconds": 90,
+  "sample_rate": 250,
+  "channels_recorded": [
+    "F3",
+    "F4",
+    "C4",
+    "C3",
+    "T4",
+    "T3",
+    "P4",
+    "P3"
+  ],
+  "total_samples_per_channel": {
+    "F3": 21689,
+    "F4": 21689,
+    "C4": 21689,
+    "C3": 21689,
+    "T4": 21689,
+    "T3": 21689,
+    "P4": 21689,
+    "P3": 21689
+  },
+  "recorded_at": "2026-03-07 18:37:10"
+}

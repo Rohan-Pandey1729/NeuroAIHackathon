@@ -1,0 +1,27 @@
+{
+  "user": "swati",
+  "technique": "baseline",
+  "duration_seconds": 30,
+  "sample_rate": 250,
+  "channels_recorded": [
+    "F3",
+    "F4",
+    "C4",
+    "C3",
+    "T4",
+    "T3",
+    "P4",
+    "P3"
+  ],
+  "total_samples_per_channel": {
+    "F3": 2429,
+    "F4": 2429,
+    "C4": 2429,
+    "C3": 2429,
+    "T4": 2429,
+    "T3": 2429,
+    "P4": 2429,
+    "P3": 2429
+  },
+  "recorded_at": "2026-03-07 17:34:58"
+}

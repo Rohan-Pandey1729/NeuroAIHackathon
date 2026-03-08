@@ -1,0 +1,27 @@
+{
+  "user": "rohan",
+  "technique": "baseline",
+  "duration_seconds": 30,
+  "sample_rate": 250,
+  "channels_recorded": [
+    "F3",
+    "F4",
+    "C4",
+    "C3",
+    "T4",
+    "T3",
+    "P4",
+    "P3"
+  ],
+  "total_samples_per_channel": {
+    "F3": 366,
+    "F4": 366,
+    "C4": 366,
+    "C3": 366,
+    "T4": 366,
+    "T3": 366,
+    "P4": 366,
+    "P3": 366
+  },
+  "recorded_at": "2026-03-07 18:04:45"
+}

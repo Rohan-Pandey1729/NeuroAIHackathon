@@ -1,0 +1,27 @@
+{
+  "user": "tony",
+  "technique": "baseline",
+  "duration_seconds": 30,
+  "sample_rate": 250,
+  "channels_recorded": [
+    "F3",
+    "F4",
+    "C4",
+    "C3",
+    "T4",
+    "T3",
+    "P4",
+    "P3"
+  ],
+  "total_samples_per_channel": {
+    "F3": 3147,
+    "F4": 3147,
+    "C4": 3147,
+    "C3": 3147,
+    "T4": 3147,
+    "T3": 3147,
+    "P4": 3147,
+    "P3": 3147
+  },
+  "recorded_at": "2026-03-07 17:45:52"
+}

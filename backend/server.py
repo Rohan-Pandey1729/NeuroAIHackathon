@@ -79,7 +79,7 @@ async def stream_eeg():
     print(f"FFT bandpass filter: {FILTER_LOW}–{FILTER_HIGH} Hz")
 
     while streaming:
-        await asyncio.sleep(1.0 / 30)  # ~30 pushes per second
+        await asyncio.sleep(1.0 / 10)  # ~10 pushes per second
         data = board.get_board_data()
         num_samples = data.shape[1]
         if num_samples == 0:

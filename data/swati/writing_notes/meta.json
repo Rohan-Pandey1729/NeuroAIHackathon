@@ -1,0 +1,27 @@
+{
+  "user": "swati",
+  "technique": "writing_notes",
+  "duration_seconds": 90,
+  "sample_rate": 250,
+  "channels_recorded": [
+    "F3",
+    "F4",
+    "C4",
+    "C3",
+    "T4",
+    "T3",
+    "P4",
+    "P3"
+  ],
+  "total_samples_per_channel": {
+    "F3": 6682,
+    "F4": 6682,
+    "C4": 6682,
+    "C3": 6682,
+    "T4": 6682,
+    "T3": 6682,
+    "P4": 6682,
+    "P3": 6682
+  },
+  "recorded_at": "2026-03-07 17:40:14"
+}

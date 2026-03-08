@@ -1,0 +1,27 @@
+{
+  "user": "eric",
+  "technique": "active_recall",
+  "duration_seconds": 90,
+  "sample_rate": 250,
+  "channels_recorded": [
+    "F3",
+    "F4",
+    "C4",
+    "C3",
+    "T4",
+    "T3",
+    "P4",
+    "P3"
+  ],
+  "total_samples_per_channel": {
+    "F3": 20526,
+    "F4": 20526,
+    "C4": 20526,
+    "C3": 20526,
+    "T4": 20526,
+    "T3": 20526,
+    "P4": 20526,
+    "P3": 20526
+  },
+  "recorded_at": "2026-03-07 18:33:43"
+}
