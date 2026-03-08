@@ -145,13 +145,13 @@ export class BrainScene {
     const localPt = this.brainGroup.worldToLocal(intersects[0].point.clone());
     const dir = localPt.normalize();
 
-    // Find nearest electrode by dot product
+    // Find nearest electrode by dot product (use rest dirs — same local space as the click point)
     let bestIdx = -1;
     let bestDot = -1;
     for (let i = 0; i < NUM_ELECTRODES; i++) {
-      const ex = this.electrodeDirs[i * 3];
-      const ey = this.electrodeDirs[i * 3 + 1];
-      const ez = this.electrodeDirs[i * 3 + 2];
+      const ex = this.electrodeRestDirs[i * 3];
+      const ey = this.electrodeRestDirs[i * 3 + 1];
+      const ez = this.electrodeRestDirs[i * 3 + 2];
       const dot = dir.x * ex + dir.y * ey + dir.z * ez;
       if (dot > bestDot) {
         bestDot = dot;
