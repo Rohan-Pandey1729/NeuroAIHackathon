@@ -21,16 +21,16 @@ const ELECTRODE_POSITIONS: Record<string, [number, number, number]> = {
 };
 
 const REGION_COLORS: Record<string, THREE.Color> = {
-  F3: new THREE.Color(0x42a5f5),  // Frontal — blue
-  F4: new THREE.Color(0x42a5f5),
-  C3: new THREE.Color(0x66bb6a),  // Central — green
-  C4: new THREE.Color(0x66bb6a),
-  T3: new THREE.Color(0xffa726),  // Temporal — orange
-  T4: new THREE.Color(0xfdd835),  // Temporal — yellow
-  P3: new THREE.Color(0x8d6e63),  // Parietal — brown
-  P4: new THREE.Color(0xef5350),  // Parietal — red
-  A1: new THREE.Color(0xb0bec5),  // Ear references — grey
-  A2: new THREE.Color(0xb0bec5),
+  F3: new THREE.Color(0x1e88ff),  // Frontal — vivid blue
+  F4: new THREE.Color(0x1e88ff),
+  C3: new THREE.Color(0x2ee650),  // Central — vivid green
+  C4: new THREE.Color(0x2ee650),
+  T3: new THREE.Color(0xff8800),  // Temporal — vivid orange
+  T4: new THREE.Color(0xffe600),  // Temporal — vivid yellow
+  P3: new THREE.Color(0xcc6633),  // Parietal — rich brown
+  P4: new THREE.Color(0xff2222),  // Parietal — vivid red
+  A1: new THREE.Color(0x88ccee),  // Ear references — light cyan
+  A2: new THREE.Color(0x88ccee),
 };
 
 const NUM_ELECTRODES = 10;
@@ -64,9 +64,10 @@ export class BrainScene {
   constructor(container: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     this.renderer.setPixelRatio(window.devicePixelRatio);
-    this.renderer.setClearColor(0x0a0a1a, 1);
+    this.renderer.setClearColor(0x020810, 1);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.5;
+    this.renderer.toneMappingExposure = 1.8;
+    this.renderer.clippingPlanes = [];
     container.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
@@ -75,16 +76,20 @@ export class BrainScene {
     this.camera.position.set(0, 0.5, 4.0);
     this.camera.lookAt(0, 0.25, 0);
 
-    const ambient = new THREE.AmbientLight(0xffffff, 0.3);
+    const ambient = new THREE.AmbientLight(0x1a3a5a, 0.4);
     this.scene.add(ambient);
 
-    const keyLight = new THREE.DirectionalLight(0xffffff, 0.6);
+    const keyLight = new THREE.DirectionalLight(0x4488cc, 0.3);
     keyLight.position.set(3, 5, 5);
     this.scene.add(keyLight);
 
-    const fillLight = new THREE.DirectionalLight(0x8899bb, 0.2);
+    const fillLight = new THREE.DirectionalLight(0x2244aa, 0.15);
     fillLight.position.set(-4, 2, -3);
     this.scene.add(fillLight);
+
+    const rimLight = new THREE.DirectionalLight(0x00ccff, 0.25);
+    rimLight.position.set(0, -3, -5);
+    this.scene.add(rimLight);
 
     this.brainGroup = new THREE.Group();
     this.scene.add(this.brainGroup);
@@ -194,14 +199,15 @@ export class BrainScene {
         };
 
         const mat = new THREE.MeshPhysicalMaterial({
-          color: 0xc8c8c8,
-          roughness: 0.3,
+          color: 0x0d3050,
+          roughness: 0.6,
           metalness: 0.0,
-          transmission: 0.6,
-          thickness: 1.0,
-          ior: 1.2,
           transparent: true,
+          opacity: 0.25,
           side: THREE.DoubleSide,
+          emissive: new THREE.Color(0x0a3050),
+          emissiveIntensity: 0.2,
+          depthWrite: false,
         });
 
         mat.onBeforeCompile = (shader) => {
@@ -214,12 +220,20 @@ export class BrainScene {
           shader.vertexShader = shader.vertexShader.replace(
             '#include <common>',
             `#include <common>
-varying vec3 vObjPos;`
+varying vec3 vObjPos;
+varying vec3 vWorldNormal;
+varying vec3 vWorldPosition;`
           );
           shader.vertexShader = shader.vertexShader.replace(
             '#include <begin_vertex>',
             `#include <begin_vertex>
 vObjPos = transformed;`
+          );
+          shader.vertexShader = shader.vertexShader.replace(
+            '#include <worldpos_vertex>',
+            `#include <worldpos_vertex>
+vWorldNormal = normalize((modelMatrix * vec4(objectNormal, 0.0)).xyz);
+vWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;`
           );
 
           shader.fragmentShader = shader.fragmentShader.replace(
@@ -230,32 +244,50 @@ uniform vec3 uElectrodeColor[${NUM_ELECTRODES}];
 uniform float uElectrodeIntensity[${NUM_ELECTRODES}];
 uniform vec3 uMeshCenter;
 uniform float uGlowSharpness;
-varying vec3 vObjPos;`
+varying vec3 vObjPos;
+varying vec3 vWorldNormal;
+varying vec3 vWorldPosition;`
           );
 
           shader.fragmentShader = shader.fragmentShader.replace(
             '#include <emissivemap_fragment>',
             `#include <emissivemap_fragment>
+
+// ── Fresnel edge glow (hologram look) ──
+vec3 viewDir = normalize(cameraPosition - vWorldPosition);
+float fresnel = 1.0 - abs(dot(viewDir, normalize(vWorldNormal)));
+fresnel = pow(fresnel, 1.8);
+vec3 edgeColor = vec3(0.15, 0.75, 0.95); // cyan hologram edge
+totalEmissiveRadiance += edgeColor * fresnel * 0.2;
+
+// Subtle scan-line effect
+float scanLine = sin(vObjPos.y * 120.0) * 0.5 + 0.5;
+scanLine = smoothstep(0.3, 0.7, scanLine);
+totalEmissiveRadiance += edgeColor * scanLine * fresnel * 0.15;
+
+// ── Electrode glow (preserved) ──
 vec3 vertDir = normalize(vObjPos - uMeshCenter);
 vec3 glow = vec3(0.0);
 float totalWeight = 0.0;
 for (int i = 0; i < ${NUM_ELECTRODES}; i++) {
   float alignment = dot(vertDir, uElectrodeDir[i]);
-  float falloff = smoothstep(0.55, 0.75, alignment);
+  // Tight core with a subtle outer halo
+  float core = smoothstep(0.82, 0.92, alignment);
+  float halo = smoothstep(0.65, 0.82, alignment) * 0.15;
+  float falloff = core + halo;
   float w = uElectrodeIntensity[i] * falloff;
   glow += uElectrodeColor[i] * w;
   totalWeight += w;
 }
-// Normalize overlapping regions so they blend colors instead of washing to white
 if (totalWeight > 1.0) glow /= totalWeight;
-totalEmissiveRadiance += glow * min(totalWeight, 1.0) * 0.4;`
+totalEmissiveRadiance += glow * min(totalWeight, 1.0) * 0.8;`
           );
         };
 
         mesh.material = mat;
       });
 
-      const labelRadius = 0.85 * scale;
+      const labelRadius = 70 * scale;
       this.createLabels(labelRadius);
     });
   }
