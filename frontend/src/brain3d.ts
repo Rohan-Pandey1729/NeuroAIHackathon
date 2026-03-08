@@ -50,6 +50,11 @@ export class BrainScene {
   private currentRotZ = 0;
   private spinAngle = 0;
 
+  // Calibration: first accelerometer reading becomes the zero reference
+  private accelCalibrated = false;
+  private accelOffsetX = 0;  // pitch offset
+  private accelOffsetZ = 0;  // roll offset
+
   private electrodeIntensity = new Float32Array(NUM_ELECTRODES);
   private electrodeColors = new Float32Array(NUM_ELECTRODES * 3);
   private electrodeDirs = new Float32Array(NUM_ELECTRODES * 3);       // world-space (rotated each frame)
@@ -391,8 +396,19 @@ gl_FragColor.a = mix(gl_FragColor.a, 0.8, regionAlpha);`
     // Roll  (ear to shoulder)      = tilt around Z axis from X vs Z
     const g = Math.sqrt(ax * ax + ay * ay + az * az);
     if (g < 0.3) return; // reject near-zero readings
-    this.targetRotX = Math.atan2(ay, az);   // pitch: nod forward = tilt brain forward
-    this.targetRotZ = -Math.atan2(ax, az);  // roll: tilt right = tilt brain right
+
+    const rawPitch = Math.atan2(ay, az);
+    const rawRoll = -Math.atan2(ax, az);
+
+    // Calibrate on first valid reading so initial orientation = neutral
+    if (!this.accelCalibrated) {
+      this.accelOffsetX = rawPitch;
+      this.accelOffsetZ = rawRoll;
+      this.accelCalibrated = true;
+    }
+
+    this.targetRotX = rawPitch - this.accelOffsetX;
+    this.targetRotZ = rawRoll - this.accelOffsetZ;
   }
 
   private handleResize(container: HTMLElement): void {
