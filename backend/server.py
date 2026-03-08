@@ -23,6 +23,7 @@ board_id: int = BoardIds.CYTON_BOARD
 serial_port: str = ""
 
 frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
+visualizer_dir = Path(__file__).resolve().parent.parent / "visualizer"
 
 
 async def broadcast(data: dict):
@@ -139,6 +140,11 @@ app = FastAPI(lifespan=lifespan)
 @app.get("/")
 async def index():
     return FileResponse(frontend_dir / "index.html")
+
+
+@app.get("/connections")
+async def connections_visualizer():
+    return FileResponse(visualizer_dir / "index.html")
 
 
 @app.websocket("/ws")

@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NeuralTrace — Connection Formation Visualizer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #060612;
+      color: #e0e0e0;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      overflow: hidden;
+    }
+    #header {
+      position: absolute;
+      top: 16px;
+      left: 24px;
+      z-index: 10;
+    }
+    #header h1 {
+      font-size: 20px;
+      font-weight: 600;
+      color: #a0c4ff;
+      letter-spacing: 0.5px;
+    }
+    #header p {
+      font-size: 12px;
+      color: #8899aa;
+      margin-top: 4px;
+    }
+    #legend {
+      position: absolute;
+      bottom: 20px;
+      left: 24px;
+      z-index: 10;
+      font-size: 11px;
+      line-height: 1.7;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    #controls {
+      position: absolute;
+      top: 16px;
+      right: 24px;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    #controls select, #controls button {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      border: 1px solid #333;
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    #controls button:hover { background: #2a2a4e; }
+    #controls button.active { border-color: #a0c4ff; color: #a0c4ff; }
+    #time-display {
+      position: absolute;
+      bottom: 20px;
+      right: 24px;
+      z-index: 10;
+      font-size: 13px;
+      color: #667788;
+    }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <div id="header">
+    <h1>Neural Connection Formation</h1>
+    <p>How your brain builds new pathways as you learn</p>
+  </div>
+
+  <div id="controls">
+    <select id="mode-select">
+      <option value="live">Live (WebSocket)</option>
+      <option value="demo">Demo (Simulated)</option>
+    </select>
+    <button id="btn-reset">Reset</button>
+    <button id="btn-pause">Pause</button>
+  </div>
+
+  <div id="legend"></div>
+  <div id="time-display">t = 0.0s</div>
+
+  <canvas id="canvas"></canvas>
+
+  <script>
+    // ── Configuration ──────────────────────────────────────────────
+    const REGIONS = {
+      // name: { pos: [x_frac, y_frac], color, label, description }
+      F3:  { pos: [0.35, 0.18], color: '#42a5f5', label: 'F3',  region: 'Frontal L',  desc: 'Planning & Working Memory' },
+      F4:  { pos: [0.65, 0.18], color: '#42a5f5', label: 'F4',  region: 'Frontal R',  desc: 'Executive Function' },
+      C3:  { pos: [0.22, 0.45], color: '#66bb6a', label: 'C3',  region: 'Central L',  desc: 'Motor Learning' },
+      C4:  { pos: [0.78, 0.45], color: '#66bb6a', label: 'C4',  region: 'Central R',  desc: 'Sensory Integration' },
+      T3:  { pos: [0.12, 0.60], color: '#ffa726', label: 'T3',  region: 'Temporal L', desc: 'Memory Encoding' },
+      T4:  { pos: [0.88, 0.60], color: '#fdd835', label: 'T4',  region: 'Temporal R', desc: 'Auditory Processing' },
+      P3:  { pos: [0.32, 0.78], color: '#8d6e63', label: 'P3',  region: 'Parietal L', desc: 'Spatial Reasoning' },
+      P4:  { pos: [0.68, 0.78], color: '#ef5350', label: 'P4',  region: 'Parietal R', desc: 'Sensory Integration' },
+    };
+
+    const NODE_NAMES = Object.keys(REGIONS);
+    const NUM_NODES = NODE_NAMES.length;
+
+    // Connection pairs — all meaningful inter-region pairs
+    const CONNECTIONS = [];
+    for (let i = 0; i < NUM_NODES; i++) {
+      for (let j = i + 1; j < NUM_NODES; j++) {
+        CONNECTIONS.push([NODE_NAMES[i], NODE_NAMES[j]]);
+      }
+    }
+
+    // ── State ──────────────────────────────────────────────────────
+    // Each connection has a "strength" (0-1) that grows when coherence is detected
+    const connectionStrength = {};
+    const connectionHistory = {}; // for trail effect
+    for (const [a, b] of CONNECTIONS) {
+      const key = `${a}-${b}`;
+      connectionStrength[key] = 0;
+      connectionHistory[key] = [];
+    }
+
+    // Node activity (0-1)
+    const nodeActivity = {};
+    for (const name of NODE_NAMES) nodeActivity[name] = 0;
+
+    // Particle system for "signal traveling along connections"
+    let particles = [];
+
+    let time = 0;
+    let paused = false;
+    let mode = 'demo'; // 'live' or 'demo'
+
+    // ── Canvas setup ──────────────────────────────────────────────
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+
+    function resize() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    function nodePos(name) {
+      const r = REGIONS[name];
+      return { x: r.pos[0] * canvas.width, y: r.pos[1] * canvas.height };
+    }
+
+    // ── Build legend ──────────────────────────────────────────────
+    const legendEl = document.getElementById('legend');
+    const regionGroups = {};
+    for (const [name, info] of Object.entries(REGIONS)) {
+      const key = info.region;
+      if (!regionGroups[key]) regionGroups[key] = info;
+    }
+    for (const [region, info] of Object.entries(regionGroups)) {
+      const item = document.createElement('div');
+      item.className = 'legend-item';
+      item.innerHTML = `<span class="legend-dot" style="background:${info.color}"></span> ${region} — ${info.desc}`;
+      legendEl.appendChild(item);
+    }
+
+    // ── Controls ──────────────────────────────────────────────────
+    const modeSelect = document.getElementById('mode-select');
+    const btnReset = document.getElementById('btn-reset');
+    const btnPause = document.getElementById('btn-pause');
+    const timeDisplay = document.getElementById('time-display');
+
+    modeSelect.addEventListener('change', () => {
+      mode = modeSelect.value;
+      if (mode === 'live') connectWebSocket();
+    });
+
+    btnReset.addEventListener('click', () => {
+      for (const key of Object.keys(connectionStrength)) {
+        connectionStrength[key] = 0;
+        connectionHistory[key] = [];
+      }
+      for (const name of NODE_NAMES) nodeActivity[name] = 0;
+      particles = [];
+      time = 0;
+    });
+
+    btnPause.addEventListener('click', () => {
+      paused = !paused;
+      btnPause.textContent = paused ? 'Resume' : 'Pause';
+      btnPause.classList.toggle('active', paused);
+    });
+
+    // ── WebSocket (live mode) ─────────────────────────────────────
+    let ws = null;
+
+    function connectWebSocket() {
+      if (ws) ws.close();
+      const url = `ws://${window.location.hostname || '127.0.0.1'}:8000/ws`;
+      ws = new WebSocket(url);
+
+      ws.onmessage = (event) => {
+        if (mode !== 'live') return;
+        const msg = JSON.parse(event.data);
+        if (msg.type !== 'eeg') return;
+
+        const names = msg.channel_names || [];
+        const channels = msg.channels || [];
+
+        // Compute RMS per channel as activity proxy
+        for (let i = 0; i < names.length; i++) {
+          if (!REGIONS[names[i]]) continue;
+          const samples = channels[i] || [];
+          let sumSq = 0;
+          for (const v of samples) sumSq += v * v;
+          const rms = Math.sqrt(sumSq / (samples.length || 1));
+          const normalized = Math.min(rms / 80, 1.0);
+          nodeActivity[names[i]] += (normalized - nodeActivity[names[i]]) * 0.3;
+        }
+
+        // Compute pseudo-coherence between channel pairs using correlation
+        for (const [a, b] of CONNECTIONS) {
+          const ai = names.indexOf(a);
+          const bi = names.indexOf(b);
+          if (ai === -1 || bi === -1) continue;
+          const sa = channels[ai] || [];
+          const sb = channels[bi] || [];
+          const len = Math.min(sa.length, sb.length);
+          if (len < 4) continue;
+
+          let meanA = 0, meanB = 0;
+          for (let k = 0; k < len; k++) { meanA += sa[k]; meanB += sb[k]; }
+          meanA /= len; meanB /= len;
+
+          let cov = 0, varA = 0, varB = 0;
+          for (let k = 0; k < len; k++) {
+            const da = sa[k] - meanA;
+            const db = sb[k] - meanB;
+            cov += da * db;
+            varA += da * da;
+            varB += db * db;
+          }
+          const denom = Math.sqrt(varA * varB);
+          const corr = denom > 0 ? Math.abs(cov / denom) : 0;
+
+          const key = `${a}-${b}`;
+          // Coherence above threshold grows the connection
+          if (corr > 0.3) {
+            connectionStrength[key] = Math.min(1, connectionStrength[key] + 0.005);
+            // Spawn particle
+            if (Math.random() < corr * 0.3) {
+              particles.push({ from: a, to: b, t: 0, speed: 0.01 + Math.random() * 0.02 });
+            }
+          } else {
+            connectionStrength[key] = Math.max(0, connectionStrength[key] - 0.001);
+          }
+        }
+      };
+
+      ws.onclose = () => {
+        if (mode === 'live') setTimeout(connectWebSocket, 2000);
+      };
+      ws.onerror = () => ws.close();
+    }
+
+    // ── Demo mode simulation ──────────────────────────────────────
+    function simulateDemo(dt) {
+      // Simulate a "learning session" — connections gradually form
+      const phase = (time % 60) / 60; // 60-second cycle
+
+      for (const name of NODE_NAMES) {
+        // Oscillating activity with some randomness
+        const base = 0.2 + 0.3 * Math.sin(time * 0.5 + NODE_NAMES.indexOf(name) * 1.3);
+        const noise = (Math.random() - 0.5) * 0.1;
+        nodeActivity[name] += ((base + noise) - nodeActivity[name]) * 0.1;
+      }
+
+      for (const [a, b] of CONNECTIONS) {
+        const key = `${a}-${b}`;
+        const ai = NODE_NAMES.indexOf(a);
+        const bi = NODE_NAMES.indexOf(b);
+
+        // Connections form based on region proximity and learning phase
+        const sameHemisphere = (a.endsWith('3') && b.endsWith('3')) || (a.endsWith('4') && b.endsWith('4'));
+        const isFrontalParietal = (a[0] === 'F' && b[0] === 'P') || (a[0] === 'P' && b[0] === 'F');
+        const isFrontalTemporal = (a[0] === 'F' && b[0] === 'T') || (a[0] === 'T' && b[0] === 'F');
+
+        let growthRate = 0.0005;
+        // Frontal-parietal and frontal-temporal connections form faster (learning networks)
+        if (isFrontalParietal) growthRate = 0.002 + phase * 0.003;
+        else if (isFrontalTemporal) growthRate = 0.0015 + phase * 0.002;
+        else if (sameHemisphere) growthRate = 0.001 + phase * 0.001;
+
+        // Add some stochastic bursts
+        if (Math.random() < 0.02) growthRate += 0.01;
+
+        connectionStrength[key] = Math.min(1, connectionStrength[key] + growthRate * dt * 60);
+
+        // Spawn particles on active connections
+        if (connectionStrength[key] > 0.1 && Math.random() < connectionStrength[key] * 0.05) {
+          particles.push({
+            from: a, to: b,
+            t: 0,
+            speed: 0.008 + Math.random() * 0.015,
+          });
+        }
+      }
+    }
+
+    // ── Rendering ─────────────────────────────────────────────────
+    function drawNode(name) {
+      const { x, y } = nodePos(name);
+      const info = REGIONS[name];
+      const activity = nodeActivity[name];
+
+      // Outer glow
+      const glowRadius = 25 + activity * 20;
+      const gradient = ctx.createRadialGradient(x, y, 0, x, y, glowRadius);
+      gradient.addColorStop(0, info.color + 'aa');
+      gradient.addColorStop(0.5, info.color + '33');
+      gradient.addColorStop(1, info.color + '00');
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.arc(x, y, glowRadius, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Core circle
+      const coreRadius = 8 + activity * 6;
+      ctx.fillStyle = info.color;
+      ctx.beginPath();
+      ctx.arc(x, y, coreRadius, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Pulse ring on high activity
+      if (activity > 0.5) {
+        const pulsePhase = (time * 3) % 1;
+        const pulseRadius = coreRadius + pulsePhase * 20;
+        ctx.strokeStyle = info.color + Math.floor((1 - pulsePhase) * 128).toString(16).padStart(2, '0');
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(x, y, pulseRadius, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      // Label
+      ctx.fillStyle = '#cccccc';
+      ctx.font = '11px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(info.label, x, y - coreRadius - 8);
+      ctx.fillStyle = '#777777';
+      ctx.font = '9px sans-serif';
+      ctx.fillText(info.region, x, y - coreRadius - 20);
+    }
+
+    function drawConnection(a, b) {
+      const key = `${a}-${b}`;
+      const strength = connectionStrength[key];
+      if (strength < 0.02) return;
+
+      const pa = nodePos(a);
+      const pb = nodePos(b);
+      const colorA = REGIONS[a].color;
+      const colorB = REGIONS[b].color;
+
+      // Connection line
+      ctx.save();
+
+      // Dashed when weak, solid when strong
+      if (strength < 0.4) {
+        ctx.setLineDash([4, 6]);
+      } else if (strength < 0.7) {
+        ctx.setLineDash([8, 3]);
+      } else {
+        ctx.setLineDash([]);
+      }
+
+      const alpha = Math.floor(strength * 200).toString(16).padStart(2, '0');
+      const gradient = ctx.createLinearGradient(pa.x, pa.y, pb.x, pb.y);
+      gradient.addColorStop(0, colorA + alpha);
+      gradient.addColorStop(1, colorB + alpha);
+      ctx.strokeStyle = gradient;
+      ctx.lineWidth = 0.5 + strength * 3;
+      ctx.beginPath();
+      ctx.moveTo(pa.x, pa.y);
+
+      // Slight curve for visual distinction
+      const mx = (pa.x + pb.x) / 2;
+      const my = (pa.y + pb.y) / 2;
+      const dx = pb.x - pa.x;
+      const dy = pb.y - pa.y;
+      const cx = mx - dy * 0.1;
+      const cy = my + dx * 0.1;
+      ctx.quadraticCurveTo(cx, cy, pb.x, pb.y);
+      ctx.stroke();
+
+      // Glow on strong connections
+      if (strength > 0.6) {
+        ctx.setLineDash([]);
+        ctx.strokeStyle = gradient;
+        ctx.lineWidth = strength * 6;
+        ctx.globalAlpha = 0.15;
+        ctx.beginPath();
+        ctx.moveTo(pa.x, pa.y);
+        ctx.quadraticCurveTo(cx, cy, pb.x, pb.y);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+
+      ctx.restore();
+    }
+
+    function drawParticles() {
+      for (const p of particles) {
+        const pa = nodePos(p.from);
+        const pb = nodePos(p.to);
+        const t = p.t;
+
+        // Quadratic bezier interpolation (same curve as connection)
+        const mx = (pa.x + pb.x) / 2;
+        const my = (pa.y + pb.y) / 2;
+        const dx = pb.x - pa.x;
+        const dy = pb.y - pa.y;
+        const cx = mx - dy * 0.1;
+        const cy = my + dx * 0.1;
+
+        const u = 1 - t;
+        const x = u * u * pa.x + 2 * u * t * cx + t * t * pb.x;
+        const y = u * u * pa.y + 2 * u * t * cy + t * t * pb.y;
+
+        const alpha = Math.sin(t * Math.PI); // fade in/out
+        const color = REGIONS[p.from].color;
+
+        ctx.fillStyle = color;
+        ctx.globalAlpha = alpha * 0.8;
+        ctx.beginPath();
+        ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Particle trail
+        ctx.globalAlpha = alpha * 0.3;
+        ctx.beginPath();
+        ctx.arc(x, y, 5, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    function drawBackground() {
+      // Subtle brain outline (oval)
+      const cx = canvas.width / 2;
+      const cy = canvas.height / 2;
+      const rx = canvas.width * 0.38;
+      const ry = canvas.height * 0.38;
+
+      ctx.strokeStyle = '#151530';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Midline
+      ctx.strokeStyle = '#101025';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - ry);
+      ctx.lineTo(cx, cy + ry);
+      ctx.stroke();
+    }
+
+    // ── Main loop ─────────────────────────────────────────────────
+    let lastTime = performance.now();
+
+    function animate(now) {
+      requestAnimationFrame(animate);
+
+      const dt = (now - lastTime) / 1000;
+      lastTime = now;
+
+      if (paused) return;
+
+      time += dt;
+      timeDisplay.textContent = `t = ${time.toFixed(1)}s`;
+
+      // Update simulation
+      if (mode === 'demo') simulateDemo(dt);
+
+      // Update particles
+      particles = particles.filter(p => {
+        p.t += p.speed;
+        return p.t < 1;
+      });
+
+      // Render
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawBackground();
+
+      // Draw connections (back layer)
+      for (const [a, b] of CONNECTIONS) drawConnection(a, b);
+
+      // Draw particles (middle layer)
+      drawParticles();
+
+      // Draw nodes (front layer)
+      for (const name of NODE_NAMES) drawNode(name);
+    }
+
+    requestAnimationFrame(animate);
+
+    // Start in demo mode by default
+    modeSelect.value = 'demo';
+  </script>
+</body>
+</html>
