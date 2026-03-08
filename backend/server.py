@@ -52,6 +52,85 @@ async def broadcast(data: dict):
         connected_clients.remove(client)
 
 
+def _generate_synthetic_eeg(num_samples: int, sample_rate: int, t_offset: float):
+    """Generate realistic synthetic EEG with distinct regional activity patterns.
+
+    Each brain region has characteristic frequency content, and activity
+    sweeps across regions over time so distinct areas light up.
+    """
+    CHANNEL_NAMES = ["F3", "F4", "C4", "C3", "T4", "T3", "P4", "P3", "A1", "A2"]
+    n_ch = len(CHANNEL_NAMES)
+
+    # Region-specific dominant frequencies (Hz) and amplitudes (µV)
+    # Frontal: beta (15-25 Hz) — cognitive load
+    # Central: mu/alpha (8-13 Hz) — sensorimotor
+    # Temporal: theta (4-8 Hz) — auditory/memory
+    # Parietal: alpha (8-12 Hz) — attention/visual
+    # Ear refs: minimal activity
+    REGION_SPEC = {
+        "F3": [(18.0, 40), (10.0, 20), (6.0, 10)],
+        "F4": [(20.0, 38), (10.0, 18), (6.0, 12)],
+        "C3": [(10.0, 50), (20.0, 15), (4.0, 10)],
+        "C4": [(11.0, 48), (22.0, 14), (5.0, 12)],
+        "T3": [(5.5, 45),  (10.0, 15), (18.0, 8)],
+        "T4": [(6.0, 42),  (10.0, 14), (19.0, 10)],
+        "P3": [(9.5, 55),  (18.0, 12), (5.0, 15)],
+        "P4": [(10.0, 52), (20.0, 10), (4.5, 14)],
+        "A1": [(10.0, 5),  (6.0, 3)],
+        "A2": [(10.0, 5),  (6.0, 3)],
+    }
+
+    # Sweeping activation: each region peaks at a different phase of a slow cycle
+    # This creates a "traveling wave" effect around the head
+    REGION_PHASE = {
+        "F3": 0.0, "F4": 0.15,
+        "C3": 0.3, "C4": 0.45,
+        "T3": 0.55, "T4": 0.7,
+        "P3": 0.8, "P4": 0.9,
+        "A1": 0.5, "A2": 0.5,
+    }
+    SWEEP_PERIOD = 4.0  # seconds per full sweep cycle
+
+    t = np.arange(num_samples) / sample_rate + t_offset
+    channels = []
+
+    for ch_name in CHANNEL_NAMES:
+        signal = np.zeros(num_samples)
+
+        # Sweep envelope: sinusoidal modulation so this region pulses on/off
+        phase = REGION_PHASE[ch_name]
+        envelope = 0.3 + 0.7 * (0.5 + 0.5 * np.sin(2 * np.pi * (t / SWEEP_PERIOD - phase)))
+
+        # Sum characteristic oscillations
+        for freq, amp in REGION_SPEC[ch_name]:
+            # Slight frequency jitter for realism
+            jitter = 1.0 + 0.02 * np.sin(2 * np.pi * 0.1 * t + freq)
+            signal += amp * np.sin(2 * np.pi * freq * jitter * t)
+
+        # Apply sweep envelope
+        signal *= envelope
+
+        # Add pink-ish noise (1/f)
+        white = np.random.randn(num_samples) * 8
+        # Simple 1/f approximation: cumulative filter
+        pink = np.cumsum(white) * 0.05
+        pink -= np.mean(pink)
+        signal += pink + white * 2
+
+        channels.append(signal.tolist())
+
+    timestamps = t.tolist()
+
+    # Simulate gentle head sway: gravity is ~1g on Z, small tilts on X/Y
+    t_mid = t_offset + num_samples / (2 * sample_rate)
+    ax = 0.06 * np.sin(2 * np.pi * 0.15 * t_mid)   # slow lateral sway
+    ay = 0.04 * np.sin(2 * np.pi * 0.1 * t_mid + 1.0)  # slow nod
+    az = np.sqrt(max(0, 1.0 - ax**2 - ay**2))       # gravity remainder
+    accel = [float(ax), float(ay), float(az)]
+
+    return channels, CHANNEL_NAMES, timestamps, accel
+
+
 async def stream_eeg():
     """Continuously read EEG data from the board and broadcast to clients."""
     global streaming, record_sample_rate
@@ -59,6 +138,7 @@ async def stream_eeg():
     accel_channels = BoardShim.get_accel_channels(board.board_id)
     timestamp_channel = BoardShim.get_timestamp_channel(board.board_id)
     sample_rate = BoardShim.get_sampling_rate(board.board_id)
+    is_synthetic = board_id == BoardIds.SYNTHETIC_BOARD.value or board_id == -1
 
     # International 10-20 electrode names, ordered by Cyton pin (N1P → N8P).
     # Wiring: N1P=F3(grey), N2P=F4(purple), N3P=C4(blue), N4P=C3(green),
@@ -74,43 +154,53 @@ async def stream_eeg():
     filter_buffers: list[np.ndarray] = [np.array([]) for _ in eeg_channels]
     BUFFER_SIZE = int(sample_rate)  # 1 second of history
 
+    synth_t_offset = 0.0  # running time offset for synthetic data continuity
+
     print(f"Streaming EEG — {len(eeg_channels)} channels @ {sample_rate} Hz")
     print(f"10-20 channel mapping: {CHANNEL_NAMES_10_20[:len(eeg_channels)]}")
-    print(f"FFT bandpass filter: {FILTER_LOW}–{FILTER_HIGH} Hz")
+    if is_synthetic:
+        print("Synthetic mode: generating realistic regional EEG patterns")
+    else:
+        print(f"FFT bandpass filter: {FILTER_LOW}–{FILTER_HIGH} Hz")
 
     while streaming:
         await asyncio.sleep(1.0 / 10)  # ~10 pushes per second
-        data = await asyncio.to_thread(board.get_board_data)
-        num_samples = data.shape[1]
-        if num_samples == 0:
-            continue
 
-        raw_eeg = data[eeg_channels]
-        timestamps = data[timestamp_channel].tolist()
+        if is_synthetic:
+            num_samples = sample_rate // 10  # ~0.1s of data per push
+            eeg, channel_names, timestamps, accel = _generate_synthetic_eeg(
+                num_samples, sample_rate, synth_t_offset
+            )
+            synth_t_offset += num_samples / sample_rate
+        else:
+            data = await asyncio.to_thread(board.get_board_data)
+            num_samples = data.shape[1]
+            if num_samples == 0:
+                continue
 
-        # FFT bandpass: accumulate into rolling buffer, filter, take new samples
-        filtered_channels = []
-        for ch_idx in range(len(eeg_channels)):
-            buf = np.concatenate([filter_buffers[ch_idx], raw_eeg[ch_idx]])
-            if len(buf) > BUFFER_SIZE:
-                buf = buf[-BUFFER_SIZE:]
-            filter_buffers[ch_idx] = buf
+            raw_eeg = data[eeg_channels]
+            timestamps = data[timestamp_channel].tolist()
 
-            if len(buf) >= 16:
-                freqs = np.fft.rfftfreq(len(buf), d=1.0 / sample_rate)
-                spectrum = np.fft.rfft(buf)
-                spectrum[(freqs < FILTER_LOW) | (freqs > FILTER_HIGH)] = 0
-                filtered = np.fft.irfft(spectrum, n=len(buf))
-                filtered_channels.append(filtered[-num_samples:].tolist())
-            else:
-                filtered_channels.append(raw_eeg[ch_idx].tolist())
+            # FFT bandpass: accumulate into rolling buffer, filter, take new samples
+            filtered_channels = []
+            for ch_idx in range(len(eeg_channels)):
+                buf = np.concatenate([filter_buffers[ch_idx], raw_eeg[ch_idx]])
+                if len(buf) > BUFFER_SIZE:
+                    buf = buf[-BUFFER_SIZE:]
+                filter_buffers[ch_idx] = buf
 
-        eeg = filtered_channels
+                if len(buf) >= 16:
+                    freqs = np.fft.rfftfreq(len(buf), d=1.0 / sample_rate)
+                    spectrum = np.fft.rfft(buf)
+                    spectrum[(freqs < FILTER_LOW) | (freqs > FILTER_HIGH)] = 0
+                    filtered = np.fft.irfft(spectrum, n=len(buf))
+                    filtered_channels.append(filtered[-num_samples:].tolist())
+                else:
+                    filtered_channels.append(raw_eeg[ch_idx].tolist())
 
-        # Accelerometer: take last sample's [x, y, z] for head orientation
-        accel = [data[ch][-1] for ch in accel_channels] if len(accel_channels) > 0 else []
-
-        channel_names = CHANNEL_NAMES_10_20[:len(eeg)]
+            eeg = filtered_channels
+            accel = [data[ch][-1] for ch in accel_channels] if len(accel_channels) > 0 else []
+            channel_names = CHANNEL_NAMES_10_20[:len(eeg)]
 
         # Append to recording buffer if recording is active
         if recording:
