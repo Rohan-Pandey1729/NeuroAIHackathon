@@ -127,7 +127,15 @@ export class NeuralAnimPopup {
     if (regionInfo) {
       const info = document.createElement('div');
       info.className = 'neural-region-info';
-      info.textContent = regionInfo;
+      // Split at " — " to separate region name from description
+      const dashIdx = regionInfo.indexOf(' — ');
+      if (dashIdx >= 0) {
+        const heading = regionInfo.slice(0, dashIdx);
+        const body = regionInfo.slice(dashIdx + 3);
+        info.innerHTML = `<strong>${heading}</strong><br>${body}`;
+      } else {
+        info.textContent = regionInfo;
+      }
       popup.appendChild(info);
     }
 
@@ -139,10 +147,9 @@ export class NeuralAnimPopup {
     this.overlay.appendChild(popup);
     document.body.appendChild(this.overlay);
 
-    // Sizing
-    // this.w = Math.min(900, window.innerWidth - 64);
-    this.w = window.innerWidth - 64;
-    this.h = Math.min(450, window.innerHeight - 160);
+    // Sizing — cap width so neurons stay dense and text wraps
+    this.w = Math.min(780, window.innerWidth - 64);
+    this.h = Math.min(420, window.innerHeight - 160);
     const dpr = window.devicePixelRatio;
     this.canvas.width = this.w * dpr;
     this.canvas.height = this.h * dpr;
@@ -196,16 +203,20 @@ export class NeuralAnimPopup {
 
   private placeNeurons(): void {
     const n = 10 + ((Math.random() * 4) | 0);
-    const margin = 55;
+    const margin = 30;
+    // Cluster neurons toward center so dendrites/connections stay in view
     for (let i = 0; i < n; i++) {
       let pos: Vec2, ok: boolean, tries = 0;
       do {
+        // Gaussian-ish bias toward center
+        const rx = (Math.random() + Math.random()) / 2; // triangle distribution
+        const ry = (Math.random() + Math.random()) / 2;
         pos = {
-          x: margin + Math.random() * (this.w - 2 * margin),
-          y: margin + Math.random() * (this.h - 2 * margin),
+          x: margin + rx * (this.w - 2 * margin),
+          y: margin + ry * (this.h - 2 * margin),
         };
         ok = this.neurons.every(
-          (q) => Math.hypot(q.pos.x - pos.x, q.pos.y - pos.y) > 75,
+          (q) => Math.hypot(q.pos.x - pos.x, q.pos.y - pos.y) > 50,
         );
         tries++;
       } while (!ok && tries < 80);
@@ -226,7 +237,7 @@ export class NeuralAnimPopup {
       for (let a = 0; a < arms; a++) {
         let angle = (a / arms) * Math.PI * 2 + (Math.random() - 0.5) * 0.6;
         const segLen = 4;
-        const totalLen = 35 + Math.random() * 55;
+        const totalLen = 25 + Math.random() * 40;
         const pts: Vec2[] = [{ ...n.pos }];
         let len = 0;
         while (len < totalLen) {
@@ -242,7 +253,7 @@ export class NeuralAnimPopup {
             let subAngle =
               angle + (Math.random() < 0.5 ? 1 : -1) * (0.5 + Math.random() * 0.5);
             const subPts: Vec2[] = [{ ...pts[pts.length - 1] }];
-            const subLen = 15 + Math.random() * 25;
+            const subLen = 10 + Math.random() * 18;
             let sLen = 0;
             while (sLen < subLen) {
               subAngle += (Math.random() - 0.5) * 0.8;
@@ -285,7 +296,7 @@ export class NeuralAnimPopup {
           this.neurons[i].pos.x - this.neurons[j].pos.x,
           this.neurons[i].pos.y - this.neurons[j].pos.y,
         );
-        if (d < 200 && Math.random() < 0.45) {
+        if (d < 160 && Math.random() < 0.5) {
           const pa = this.neurons[i].pos,
             pb = this.neurons[j].pos;
           const mx = (pa.x + pb.x) / 2,
@@ -645,6 +656,43 @@ export class NeuralAnimPopup {
       }
     }
 
+    // Clamp labels to stay within canvas bounds
+    const PAD = 4;          // padding from canvas edge
+    const LABEL_GAP = 4;    // gap between connector line end and text
+    const CHAR_W = 6.2;     // approximate width per character at 10px monospace
+    const HALF_H = 6;       // half the text height
+
+    for (const lb of visible) {
+      const textW = lb.text.length * CHAR_W;
+      const leftOfTarget = lb.lx < lb.target.x;
+
+      if (leftOfTarget) {
+        // Text is drawn right-aligned at (lx - LABEL_GAP), so left edge is at lx - LABEL_GAP - textW
+        const leftEdge = lb.lx - LABEL_GAP - textW;
+        if (leftEdge < PAD) {
+          lb.lx = PAD + textW + LABEL_GAP;
+        }
+        // Also check right edge (the connector point)
+        if (lb.lx > this.w - PAD) {
+          lb.lx = this.w - PAD;
+        }
+      } else {
+        // Text is drawn left-aligned at (lx + LABEL_GAP), so right edge is at lx + LABEL_GAP + textW
+        const rightEdge = lb.lx + LABEL_GAP + textW;
+        if (rightEdge > this.w - PAD) {
+          lb.lx = this.w - PAD - textW - LABEL_GAP;
+        }
+        // Also check left edge
+        if (lb.lx < PAD) {
+          lb.lx = PAD;
+        }
+      }
+
+      // Clamp vertical
+      if (lb.ly - HALF_H < PAD) lb.ly = PAD + HALF_H;
+      if (lb.ly + HALF_H > this.h - PAD) lb.ly = this.h - PAD - HALF_H;
+    }
+
     for (const lb of visible) {
       // Connector line
       ctx.beginPath();
@@ -658,7 +706,7 @@ export class NeuralAnimPopup {
       const leftOfTarget = lb.lx < lb.target.x;
       ctx.textAlign = leftOfTarget ? 'right' : 'left';
       ctx.fillStyle = `rgba(255,255,255,${lb.alpha})`;
-      ctx.fillText(lb.text, lb.lx + (leftOfTarget ? -4 : 4), lb.ly);
+      ctx.fillText(lb.text, lb.lx + (leftOfTarget ? -LABEL_GAP : LABEL_GAP), lb.ly);
     }
 
     ctx.restore();
