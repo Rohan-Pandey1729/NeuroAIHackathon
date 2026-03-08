@@ -407,8 +407,8 @@ gl_FragColor.a = mix(gl_FragColor.a, 0.8, regionAlpha);`
       this.accelCalibrated = true;
     }
 
-    this.targetRotX = rawPitch - this.accelOffsetX;
-    this.targetRotZ = rawRoll - this.accelOffsetZ;
+    this.targetRotX = (rawPitch - this.accelOffsetX) * 0.3;
+    this.targetRotZ = (rawRoll - this.accelOffsetZ) * 0.3;
   }
 
   private handleResize(container: HTMLElement): void {
