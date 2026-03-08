@@ -7,16 +7,16 @@ import { NeuralAnimPopup } from './neural-anim.ts'
 
 // Channel colors matching brain region colors from brain3d.ts
 const CHANNEL_COLOR_MAP: Record<string, string> = {
-  F3: '#1e88ff',  // Frontal — vivid blue
-  F4: '#1e88ff',
-  C3: '#2ee650',  // Central — vivid green
-  C4: '#2ee650',
-  T3: '#ff8800',  // Temporal — vivid orange
-  T4: '#ffe600',  // Temporal — vivid yellow
-  P3: '#cc6633',  // Parietal — rich brown
-  P4: '#ff2222',  // Parietal — vivid red
-  A1: '#88ccee',  // Ear references — light cyan
-  A2: '#88ccee',
+  F3: '#5a9fd4',  // Frontal — muted blue
+  F4: '#5a9fd4',
+  C3: '#5cb87a',  // Central — muted green
+  C4: '#5cb87a',
+  T3: '#d4954a',  // Temporal — muted orange
+  T4: '#c9b854',  // Temporal — muted gold
+  P3: '#a8845e',  // Parietal — muted brown
+  P4: '#c96a6a',  // Parietal — muted red
+  A1: '#7fb3c9',  // Ear references — muted cyan
+  A2: '#7fb3c9',
 };
 const FALLBACK_COLORS = [
   '#ff6384', '#36a2eb', '#ffce56', '#4bc0c0',
