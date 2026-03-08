@@ -80,7 +80,7 @@ async def stream_eeg():
 
     while streaming:
         await asyncio.sleep(1.0 / 10)  # ~10 pushes per second
-        data = board.get_board_data()
+        data = await asyncio.to_thread(board.get_board_data)
         num_samples = data.shape[1]
         if num_samples == 0:
             continue
