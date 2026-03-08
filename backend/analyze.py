@@ -76,8 +76,7 @@ def band_power(signal: np.ndarray, fs: float, band: tuple[float, float]) -> floa
     idx = np.where((freqs >= band[0]) & (freqs <= band[1]))[0]
     if len(idx) == 0:
         return 0.0
-    return float(np.trapz(psd[idx], freqs[idx]))
-
+    return float(np.trapezoid(psd[idx], freqs[idx]))
 
 def channel_coherence(sig1: np.ndarray, sig2: np.ndarray, fs: float,
                       band: tuple[float, float]) -> float:

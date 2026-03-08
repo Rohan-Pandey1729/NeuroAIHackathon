@@ -1,0 +1,27 @@
+{
+  "user": "rithvi",
+  "technique": "music_vs_no_music",
+  "duration_seconds": 180,
+  "sample_rate": 250,
+  "channels_recorded": [
+    "F3",
+    "F4",
+    "C4",
+    "C3",
+    "T4",
+    "T3",
+    "P4",
+    "P3"
+  ],
+  "total_samples_per_channel": {
+    "F3": 28475,
+    "F4": 28475,
+    "C4": 28475,
+    "C3": 28475,
+    "T4": 28475,
+    "T3": 28475,
+    "P4": 28475,
+    "P3": 28475
+  },
+  "recorded_at": "2026-03-07 17:10:42"
+}

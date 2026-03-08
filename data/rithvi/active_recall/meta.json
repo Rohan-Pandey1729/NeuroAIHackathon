@@ -1,0 +1,27 @@
+{
+  "user": "rithvi",
+  "technique": "active_recall",
+  "duration_seconds": 180,
+  "sample_rate": 250,
+  "channels_recorded": [
+    "F3",
+    "F4",
+    "C4",
+    "C3",
+    "T4",
+    "T3",
+    "P4",
+    "P3"
+  ],
+  "total_samples_per_channel": {
+    "F3": 2545,
+    "F4": 2545,
+    "C4": 2545,
+    "C3": 2545,
+    "T4": 2545,
+    "T3": 2545,
+    "P4": 2545,
+    "P3": 2545
+  },
+  "recorded_at": "2026-03-07 16:59:23"
+}

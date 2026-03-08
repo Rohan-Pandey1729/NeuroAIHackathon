@@ -1,0 +1,27 @@
+{
+  "user": "rithvi",
+  "technique": "writing_notes",
+  "duration_seconds": 180,
+  "sample_rate": 250,
+  "channels_recorded": [
+    "F3",
+    "F4",
+    "C4",
+    "C3",
+    "T4",
+    "T3",
+    "P4",
+    "P3"
+  ],
+  "total_samples_per_channel": {
+    "F3": 1281,
+    "F4": 1281,
+    "C4": 1281,
+    "C3": 1281,
+    "T4": 1281,
+    "T3": 1281,
+    "P4": 1281,
+    "P3": 1281
+  },
+  "recorded_at": "2026-03-07 17:06:52"
+}

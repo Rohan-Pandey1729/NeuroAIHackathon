@@ -1,0 +1,27 @@
+{
+  "user": "rithvi",
+  "technique": "feynman",
+  "duration_seconds": 180,
+  "sample_rate": 250,
+  "channels_recorded": [
+    "F3",
+    "F4",
+    "C4",
+    "C3",
+    "T4",
+    "T3",
+    "P4",
+    "P3"
+  ],
+  "total_samples_per_channel": {
+    "F3": 246,
+    "F4": 246,
+    "C4": 246,
+    "C3": 246,
+    "T4": 246,
+    "T3": 246,
+    "P4": 246,
+    "P3": 246
+  },
+  "recorded_at": "2026-03-07 17:02:54"
+}
