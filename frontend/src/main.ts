@@ -24,12 +24,12 @@ app.innerHTML = `
     </div>
     <button id="record-session-btn" class="rec-btn rec-btn-primary rec-btn-record">Record Session</button>
   </div>
+  <div id="recorder-mount"></div>
   <div id="dashboard">
     <div id="brain-section">
       <div id="brain-container"></div>
     </div>
     <div id="right-panel">
-      <div id="recorder-mount"></div>
       <div id="channels-section">
         <div id="channels-header">EEG Channels</div>
         <div id="channels"></div>

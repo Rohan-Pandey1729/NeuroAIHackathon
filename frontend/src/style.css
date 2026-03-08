@@ -174,80 +174,219 @@ canvas {
   border-radius: 2px;
 }
 
-/* ── Recorder panel ── */
-.recorder-panel {
-  animation: rec-slide-in 0.3s ease-out;
+/* ── Session bar (recorder) ── */
+.session-bar {
+  animation: session-bar-in 0.3s ease-out;
+  margin-bottom: 0.75rem;
 }
 
-@keyframes rec-slide-in {
-  from {
-    opacity: 0;
-    transform: translateY(-8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+@keyframes session-bar-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
-.rec-card {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-  padding: 1.5rem;
+.session-bar-inner {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 0.6rem 1rem;
+}
+
+.session-bar-result {
+  border-color: rgba(75, 192, 192, 0.2);
+  background: rgba(75, 192, 192, 0.04);
+}
+
+.session-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+
+.session-bar-center {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.session-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+
+.session-label {
+  font-size: 0.8em;
+  font-weight: 600;
+  color: #36a2eb;
+}
+
+.session-meta {
+  font-size: 0.7em;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.session-input {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  padding: 0.35rem 0.65rem;
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.8em;
+  outline: none;
+  width: 160px;
+}
+
+.session-input:focus {
+  border-color: #36a2eb;
+}
+
+.session-btn {
+  white-space: nowrap;
+}
+
+.session-btn-go {
+  background: #4bc0c0;
+}
+
+.session-btn-go:hover {
+  background: #3bafaf;
+}
+
+.session-close {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 1.3em;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  transition: color 0.15s;
+}
+
+.session-close:hover {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.session-phase-label {
+  font-size: 0.75em;
+  font-weight: 600;
+  color: #36a2eb;
+  white-space: nowrap;
+}
+
+.session-done-label {
+  color: #4bc0c0;
+}
+
+.session-phase-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.session-technique-name {
+  font-size: 0.85em;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-technique-desc {
+  font-size: 0.7em;
+  color: rgba(255, 255, 255, 0.4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-countdown {
+  font-size: 1.3em;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  min-width: 36px;
   text-align: center;
 }
 
-.rec-card-wide {
-  max-width: none;
-}
-
-.rec-card h2 {
-  margin: 0 0 0.5rem;
-  font-size: 1.3em;
-}
-
-.rec-subtitle {
-  color: #aaa;
-  font-size: 0.85em;
-  margin: 0 0 1.25rem;
-}
-
-.rec-session-info {
+.session-recording-indicator {
   display: flex;
-  gap: 1.5rem;
-  justify-content: center;
-  color: #888;
-  font-size: 0.8em;
-  margin-bottom: 1.25rem;
+  align-items: center;
+  gap: 6px;
+  color: #ff6384;
+  font-size: 0.75em;
+  font-weight: 600;
 }
 
-.rec-form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+.session-result-badge {
+  background: #4bc0c0;
+  color: #0f0f1a;
+  font-size: 0.65em;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  letter-spacing: 0.05em;
+}
+
+.session-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  border-top-color: #36a2eb;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Brain recording glow ── */
+#brain-container.recording {
+  border-color: rgba(255, 99, 132, 0.3);
+  box-shadow:
+    0 0 30px rgba(255, 99, 132, 0.12),
+    0 0 60px rgba(255, 99, 132, 0.06),
+    0 4px 24px rgba(0, 0, 0, 0.3);
+  transition: border-color 0.4s, box-shadow 0.4s;
+}
+
+/* ── Results panel (below dashboard) ── */
+.results-panel {
+  animation: session-bar-in 0.4s ease-out;
+}
+
+.results-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-top: 1.25rem;
+}
+
+.results-header {
   margin-bottom: 1rem;
 }
 
-.rec-form label {
-  font-size: 0.8em;
+.results-header h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1.15em;
+}
+
+.results-subtitle {
   color: #aaa;
-  text-align: left;
-}
-
-.rec-form input {
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 6px;
-  padding: 0.5rem 0.75rem;
-  color: #fff;
-  font-family: inherit;
-  font-size: 0.9em;
-  outline: none;
-}
-
-.rec-form input:focus {
-  border-color: #36a2eb;
+  font-size: 0.85em;
+  margin: 0;
 }
 
 .rec-btn {
@@ -289,14 +428,13 @@ canvas {
 /* Progress dots */
 .rec-progress {
   display: flex;
-  gap: 6px;
-  justify-content: center;
-  margin-bottom: 1rem;
+  gap: 5px;
+  align-items: center;
 }
 
 .rec-dot {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.15);
 }
@@ -310,28 +448,11 @@ canvas {
   box-shadow: 0 0 6px #36a2eb;
 }
 
-/* Countdown */
-.rec-countdown {
-  font-size: 2.5em;
-  font-weight: 700;
-  margin: 1rem 0;
-  color: #fff;
-  font-variant-numeric: tabular-nums;
-}
-
-/* Recording status */
-.rec-recording-status {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  color: #ff6384;
-  font-size: 0.85em;
-}
+/* Recording pulse */
 
 .rec-pulse {
-  width: 10px;
-  height: 10px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: #ff6384;
   animation: rec-pulse-anim 1s ease-in-out infinite;
@@ -507,6 +628,14 @@ canvas {
 
   #channels {
     grid-template-columns: 1fr;
+  }
+
+  .session-bar-inner {
+    flex-wrap: wrap;
+  }
+
+  .session-phase-info {
+    width: 100%;
   }
 }
 

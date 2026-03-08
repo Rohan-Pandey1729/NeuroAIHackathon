@@ -14,7 +14,8 @@ const TECHNIQUE_DURATION = 90;
 type Phase = 'setup' | 'baseline' | 'technique' | 'complete' | 'results';
 
 export class RecorderUI {
-  private container: HTMLDivElement;
+  private bar: HTMLDivElement;
+  private resultsPanel: HTMLDivElement;
   private phase: Phase = 'setup';
   private user = '';
   private techniqueIndex = 0;
@@ -22,16 +23,27 @@ export class RecorderUI {
   private pollTimer: number | null = null;
 
   constructor(parent: HTMLElement) {
-    this.container = document.createElement('div');
-    this.container.id = 'recorder-panel';
-    this.container.className = 'recorder-panel';
-    parent.appendChild(this.container);
+    // Session bar sits in the recorder-mount (between topbar and dashboard)
+    this.bar = document.createElement('div');
+    this.bar.id = 'recorder-panel';
+    this.bar.className = 'session-bar';
+    parent.appendChild(this.bar);
+
+    // Results panel goes after the dashboard
+    this.resultsPanel = document.createElement('div');
+    this.resultsPanel.id = 'recorder-results';
+    this.resultsPanel.className = 'results-panel';
+    const dashboard = document.getElementById('dashboard');
+    if (dashboard) dashboard.after(this.resultsPanel);
+
     this.render();
   }
 
   destroy(): void {
     this.clearTimers();
-    this.container.remove();
+    this.setRecordingGlow(false);
+    this.bar.remove();
+    this.resultsPanel.remove();
   }
 
   private clearTimers(): void {
@@ -39,36 +51,47 @@ export class RecorderUI {
     if (this.pollTimer !== null) { clearInterval(this.pollTimer); this.pollTimer = null; }
   }
 
+  private setRecordingGlow(on: boolean): void {
+    const brain = document.getElementById('brain-container');
+    if (brain) {
+      brain.classList.toggle('recording', on);
+    }
+  }
+
   private render(): void {
     switch (this.phase) {
       case 'setup': return this.renderSetup();
-      case 'baseline': return this.renderRecordingPhase('baseline', 'Baseline — Resting State', 'Sit still with eyes open, relaxed. This establishes your resting brain activity.', BASELINE_DURATION);
-      case 'technique': return this.renderRecordingPhase('technique', `Trial ${this.techniqueIndex + 1}/${TECHNIQUES.length}: ${TECHNIQUES[this.techniqueIndex].name}`, TECHNIQUES[this.techniqueIndex].desc, TECHNIQUE_DURATION);
+      case 'baseline': return this.renderRecordingPhase('baseline', 'Baseline — Resting State', 'Sit still with eyes open, relaxed.', BASELINE_DURATION);
+      case 'technique': return this.renderRecordingPhase('technique', TECHNIQUES[this.techniqueIndex].name, TECHNIQUES[this.techniqueIndex].desc, TECHNIQUE_DURATION);
       case 'complete': return this.renderComplete();
       case 'results': return; // rendered by showResults
     }
   }
 
+  private renderProgressDots(): string {
+    const dots = ['baseline', ...TECHNIQUES.map(t => t.id)];
+    const currentIdx = this.phase === 'baseline' ? 0 : this.techniqueIndex + 1;
+    return dots.map((_, i) =>
+      `<span class="rec-dot ${i < currentIdx ? 'done' : i === currentIdx ? 'active' : ''}"></span>`
+    ).join('');
+  }
+
   private renderSetup(): void {
-    this.container.innerHTML = `
-      <div class="rec-card">
-        <h2>Recording Session</h2>
-        <p class="rec-subtitle">Record EEG during different study techniques to find your optimal learning style.</p>
-        <div class="rec-session-info">
-          <span>5 recordings</span>
-          <span>~${Math.ceil((BASELINE_DURATION + TECHNIQUES.length * TECHNIQUE_DURATION) / 60)} min total</span>
+    this.bar.innerHTML = `
+      <div class="session-bar-inner">
+        <div class="session-bar-left">
+          <span class="session-label">New Session</span>
+          <span class="session-meta">${TECHNIQUES.length + 1} recordings &middot; ~${Math.ceil((BASELINE_DURATION + TECHNIQUES.length * TECHNIQUE_DURATION) / 60)} min</span>
         </div>
-        <div class="rec-form">
-          <label for="rec-user">Your Name</label>
-          <input id="rec-user" type="text" placeholder="e.g. alice" value="${this.user}" autocomplete="off" />
-          <button id="rec-start-btn" class="rec-btn rec-btn-primary">Start Session</button>
+        <div class="session-bar-center">
+          <input id="rec-user" class="session-input" type="text" placeholder="Your name (e.g. alice)" value="${this.user}" autocomplete="off" />
+          <button id="rec-start-btn" class="rec-btn rec-btn-primary session-btn">Start</button>
         </div>
-        <button id="rec-close-btn" class="rec-btn rec-btn-ghost">Cancel</button>
+        <button id="rec-close-btn" class="session-close" title="Cancel">&times;</button>
       </div>
     `;
-    const input = this.container.querySelector<HTMLInputElement>('#rec-user')!;
-    const startBtn = this.container.querySelector<HTMLButtonElement>('#rec-start-btn')!;
-    const closeBtn = this.container.querySelector<HTMLButtonElement>('#rec-close-btn')!;
+    const input = this.bar.querySelector<HTMLInputElement>('#rec-user')!;
+    const startBtn = this.bar.querySelector<HTMLButtonElement>('#rec-start-btn')!;
 
     input.focus();
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') startBtn.click(); });
@@ -79,46 +102,52 @@ export class RecorderUI {
       this.phase = 'baseline';
       this.render();
     });
-    closeBtn.addEventListener('click', () => this.destroy());
+    this.bar.querySelector<HTMLButtonElement>('#rec-close-btn')!.addEventListener('click', () => this.destroy());
   }
 
   private renderRecordingPhase(type: 'baseline' | 'technique', title: string, description: string, duration: number): void {
     const techniqueId = type === 'baseline' ? 'baseline' : TECHNIQUES[this.techniqueIndex].id;
+    const phaseLabel = type === 'baseline' ? 'Baseline' : `Trial ${this.techniqueIndex + 1}/${TECHNIQUES.length}`;
 
-    // Progress dots
-    const dots = ['baseline', ...TECHNIQUES.map(t => t.id)];
-    const currentIdx = type === 'baseline' ? 0 : this.techniqueIndex + 1;
-    const dotsHtml = dots.map((_, i) =>
-      `<span class="rec-dot ${i < currentIdx ? 'done' : i === currentIdx ? 'active' : ''}"></span>`
-    ).join('');
-
-    this.container.innerHTML = `
-      <div class="rec-card">
-        <div class="rec-progress">${dotsHtml}</div>
-        <h2>${title}</h2>
-        <p class="rec-subtitle">${description}</p>
-        <div id="rec-countdown" class="rec-countdown">Ready</div>
-        <button id="rec-record-btn" class="rec-btn rec-btn-primary rec-btn-record">Start Recording</button>
-        <div id="rec-recording-status" class="rec-recording-status" style="display:none">
-          <span class="rec-pulse"></span> Recording...
+    this.bar.innerHTML = `
+      <div class="session-bar-inner">
+        <div class="session-bar-left">
+          <div class="rec-progress">${this.renderProgressDots()}</div>
+          <span class="session-phase-label">${phaseLabel}</span>
+        </div>
+        <div class="session-bar-center">
+          <div class="session-phase-info">
+            <span class="session-technique-name">${title}</span>
+            <span class="session-technique-desc">${description}</span>
+          </div>
+        </div>
+        <div class="session-bar-right">
+          <span id="rec-countdown" class="session-countdown">—</span>
+          <button id="rec-record-btn" class="rec-btn rec-btn-primary session-btn session-btn-go">Record</button>
+          <div id="rec-recording-status" class="session-recording-indicator" style="display:none">
+            <span class="rec-pulse"></span>
+            <span>REC</span>
+          </div>
         </div>
       </div>
     `;
 
-    const recordBtn = this.container.querySelector<HTMLButtonElement>('#rec-record-btn')!;
-    const countdownEl = this.container.querySelector<HTMLDivElement>('#rec-countdown')!;
-    const statusEl = this.container.querySelector<HTMLDivElement>('#rec-recording-status')!;
+    const recordBtn = this.bar.querySelector<HTMLButtonElement>('#rec-record-btn')!;
+    const countdownEl = this.bar.querySelector<HTMLSpanElement>('#rec-countdown')!;
+    const statusEl = this.bar.querySelector<HTMLDivElement>('#rec-recording-status')!;
 
     recordBtn.addEventListener('click', async () => {
       recordBtn.style.display = 'none';
       statusEl.style.display = 'flex';
+      this.setRecordingGlow(true);
 
       try {
         await startRecording(this.user, techniqueId, duration);
       } catch (e) {
-        countdownEl.textContent = `Error: ${e}`;
+        countdownEl.textContent = `Error`;
         recordBtn.style.display = '';
         statusEl.style.display = 'none';
+        this.setRecordingGlow(false);
         return;
       }
 
@@ -129,6 +158,7 @@ export class RecorderUI {
         countdownEl.textContent = `${remaining}s`;
         if (remaining <= 0) {
           this.clearTimers();
+          this.setRecordingGlow(false);
           this.onPhaseComplete();
         }
       }, 1000);
@@ -151,23 +181,37 @@ export class RecorderUI {
   }
 
   private renderComplete(): void {
-    this.container.innerHTML = `
-      <div class="rec-card">
-        <h2>All Trials Complete!</h2>
-        <p class="rec-subtitle">Recorded baseline + ${TECHNIQUES.length} techniques for <strong>${this.user}</strong>.</p>
-        <button id="rec-analyze-btn" class="rec-btn rec-btn-primary">Run Analysis</button>
-        <button id="rec-close-btn" class="rec-btn rec-btn-ghost">Close</button>
+    this.bar.innerHTML = `
+      <div class="session-bar-inner">
+        <div class="session-bar-left">
+          <div class="rec-progress">${this.renderProgressDots()}</div>
+          <span class="session-phase-label session-done-label">Complete</span>
+        </div>
+        <div class="session-bar-center">
+          <span class="session-technique-name">All trials recorded for <strong>${this.user}</strong></span>
+        </div>
+        <div class="session-bar-right">
+          <button id="rec-analyze-btn" class="rec-btn rec-btn-primary session-btn">Analyze</button>
+          <button id="rec-close-btn" class="session-close" title="Close">&times;</button>
+        </div>
       </div>
     `;
-    this.container.querySelector<HTMLButtonElement>('#rec-analyze-btn')!.addEventListener('click', () => this.doAnalysis());
-    this.container.querySelector<HTMLButtonElement>('#rec-close-btn')!.addEventListener('click', () => this.destroy());
+    this.bar.querySelector<HTMLButtonElement>('#rec-analyze-btn')!.addEventListener('click', () => this.doAnalysis());
+    this.bar.querySelector<HTMLButtonElement>('#rec-close-btn')!.addEventListener('click', () => this.destroy());
   }
 
   private async doAnalysis(): Promise<void> {
-    this.container.innerHTML = `
-      <div class="rec-card">
-        <h2>Analyzing...</h2>
-        <p class="rec-subtitle">Computing learning scores from your EEG data.</p>
+    this.bar.innerHTML = `
+      <div class="session-bar-inner">
+        <div class="session-bar-left">
+          <div class="rec-progress">${this.renderProgressDots()}</div>
+        </div>
+        <div class="session-bar-center">
+          <span class="session-technique-name">Analyzing EEG data...</span>
+        </div>
+        <div class="session-bar-right">
+          <div class="session-spinner"></div>
+        </div>
       </div>
     `;
 
@@ -176,16 +220,22 @@ export class RecorderUI {
       this.phase = 'results';
       this.showResults(result);
     } catch (e) {
-      this.container.innerHTML = `
-        <div class="rec-card">
-          <h2>Analysis Error</h2>
-          <p class="rec-subtitle" style="color:#ff6384">${e}</p>
-          <button id="rec-retry-btn" class="rec-btn rec-btn-primary">Retry</button>
-          <button id="rec-close-btn" class="rec-btn rec-btn-ghost">Close</button>
+      this.bar.innerHTML = `
+        <div class="session-bar-inner">
+          <div class="session-bar-left">
+            <span class="session-phase-label" style="color:#ff6384">Analysis Error</span>
+          </div>
+          <div class="session-bar-center">
+            <span class="session-technique-desc" style="color:#ff6384">${e}</span>
+          </div>
+          <div class="session-bar-right">
+            <button id="rec-retry-btn" class="rec-btn rec-btn-primary session-btn">Retry</button>
+            <button id="rec-close-btn" class="session-close" title="Close">&times;</button>
+          </div>
         </div>
       `;
-      this.container.querySelector<HTMLButtonElement>('#rec-retry-btn')!.addEventListener('click', () => this.doAnalysis());
-      this.container.querySelector<HTMLButtonElement>('#rec-close-btn')!.addEventListener('click', () => this.destroy());
+      this.bar.querySelector<HTMLButtonElement>('#rec-retry-btn')!.addEventListener('click', () => this.doAnalysis());
+      this.bar.querySelector<HTMLButtonElement>('#rec-close-btn')!.addEventListener('click', () => this.destroy());
     }
   }
 
@@ -193,6 +243,23 @@ export class RecorderUI {
     const techNames: Record<string, string> = {};
     for (const t of TECHNIQUES) techNames[t.id] = t.name;
 
+    const bestName = techNames[result.best_technique] ?? result.best_technique;
+
+    // Collapse the bar to a summary
+    this.bar.innerHTML = `
+      <div class="session-bar-inner session-bar-result">
+        <div class="session-bar-left">
+          <span class="session-result-badge">RESULT</span>
+          <span class="session-technique-name">Best technique: <strong>${bestName}</strong></span>
+        </div>
+        <div class="session-bar-right">
+          <button id="rec-close-btn" class="session-close" title="Close">&times;</button>
+        </div>
+      </div>
+    `;
+    this.bar.querySelector<HTMLButtonElement>('#rec-close-btn')!.addEventListener('click', () => this.destroy());
+
+    // Show full results table in the results panel below the dashboard
     const rows = result.ranking.map((r, i) => {
       const name = techNames[r.technique] ?? r.technique;
       const score = r.composite_score.toFixed(4);
@@ -212,12 +279,12 @@ export class RecorderUI {
       `;
     }).join('');
 
-    const bestName = techNames[result.best_technique] ?? result.best_technique;
-
-    this.container.innerHTML = `
-      <div class="rec-card rec-card-wide">
-        <h2>Results for ${result.user}</h2>
-        <p class="rec-subtitle">Your brain learns most effectively with: <strong>${bestName}</strong></p>
+    this.resultsPanel.innerHTML = `
+      <div class="results-card">
+        <div class="results-header">
+          <h2>Analysis Results — ${result.user}</h2>
+          <p class="results-subtitle">Your brain learns most effectively with <strong>${bestName}</strong></p>
+        </div>
         <div class="rec-table-wrap">
           <table class="rec-table">
             <thead>
@@ -233,9 +300,8 @@ export class RecorderUI {
             <tbody>${rows}</tbody>
           </table>
         </div>
-        <button id="rec-close-btn" class="rec-btn rec-btn-ghost" style="margin-top:1rem">Close</button>
       </div>
     `;
-    this.container.querySelector<HTMLButtonElement>('#rec-close-btn')!.addEventListener('click', () => this.destroy());
+    this.resultsPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 }
