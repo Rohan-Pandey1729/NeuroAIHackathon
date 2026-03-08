@@ -166,8 +166,8 @@ async def run_all_trials(user: str, duration: int, ws_url: str):
 def main():
     parser = argparse.ArgumentParser(description="Record EEG data for study technique trials")
     parser.add_argument("--user", type=str, required=True, help="Subject/user name")
-    parser.add_argument("--duration", type=int, default=180,
-                        help="Duration per technique in seconds (default: 180)")
+    parser.add_argument("--duration", type=int, default=90,
+                        help="Duration per technique in seconds (default: 90s)")
     parser.add_argument("--ws-url", type=str, default="ws://127.0.0.1:8000/ws",
                         help="WebSocket URL of the running server")
     args = parser.parse_args()
