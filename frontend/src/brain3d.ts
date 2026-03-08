@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // ── International 10-20 electrode positions (unit sphere directions) ────
 // Derived from standard 10-20 spherical coordinates:
@@ -51,7 +52,8 @@ export class BrainScene {
 
   private electrodeIntensity = new Float32Array(NUM_ELECTRODES);
   private electrodeColors = new Float32Array(NUM_ELECTRODES * 3);
-  private electrodeDirs = new Float32Array(NUM_ELECTRODES * 3);
+  private electrodeDirs = new Float32Array(NUM_ELECTRODES * 3);       // world-space (rotated each frame)
+  private electrodeRestDirs = new Float32Array(NUM_ELECTRODES * 3);   // brain-local (fixed)
   private intensities: number[] = new Array(NUM_ELECTRODES).fill(0);
   private labels: THREE.Sprite[] = [];
 
@@ -66,7 +68,7 @@ export class BrainScene {
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.setClearColor(0x020810, 1);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.8;
+    this.renderer.toneMappingExposure = 1.2;
     this.renderer.clippingPlanes = [];
     container.appendChild(this.renderer.domElement);
 
@@ -75,6 +77,9 @@ export class BrainScene {
     this.camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
     this.camera.position.set(0, 0.5, 4.0);
     this.camera.lookAt(0, 0.25, 0);
+    this.camera.near = 0.001; // Allows camera to get closer [6]
+    this.camera.far = 100000; // Allows camera to see further [6]
+    this.camera.updateProjectionMatrix();
 
     const ambient = new THREE.AmbientLight(0x1a3a5a, 0.4);
     this.scene.add(ambient);
@@ -104,6 +109,9 @@ export class BrainScene {
 
       const p = ELECTRODE_POSITIONS[name];
       const len = Math.sqrt(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]);
+      this.electrodeRestDirs[i * 3 + 0] = p[0] / len;
+      this.electrodeRestDirs[i * 3 + 1] = p[1] / len;
+      this.electrodeRestDirs[i * 3 + 2] = p[2] / len;
       this.electrodeDirs[i * 3 + 0] = p[0] / len;
       this.electrodeDirs[i * 3 + 1] = p[1] / len;
       this.electrodeDirs[i * 3 + 2] = p[2] / len;
@@ -164,58 +172,62 @@ export class BrainScene {
     loader.load('/brain.glb', (gltf) => {
       const model = gltf.scene;
 
+      // Compute bounding box before merging
       const box = new THREE.Box3().setFromObject(model);
       const size = box.getSize(new THREE.Vector3());
       const center = box.getCenter(new THREE.Vector3());
       const maxDim = Math.max(size.x, size.y, size.z);
       const scale = 1.6 / maxDim;
 
+      // Apply transforms so all geometries share one coordinate space
       model.scale.setScalar(scale);
-      model.position.sub(center.multiplyScalar(scale));
+      model.position.sub(center.clone().multiplyScalar(scale));
+      model.updateMatrixWorld(true);
 
-      this.brainGroup.add(model);
-      this.brainModel = model;
-      this.brainGroup.updateMatrixWorld(true);
+      // Collect all geometries, baking their world transforms
+      const geometries: THREE.BufferGeometry[] = [];
+      model.traverse((child) => {
+        if (!(child as THREE.Mesh).isMesh) return;
+        const mesh = child as THREE.Mesh;
+        const geo = mesh.geometry.clone();
+        geo.applyMatrix4(mesh.matrixWorld);
+        geometries.push(geo);
+      });
+
+      if (geometries.length === 0) return;
+
+      // Merge into a single geometry + mesh
+      const merged = mergeGeometries(geometries, false);
+      if (!merged) return;
+      merged.computeVertexNormals();
 
       const colArr = this.electrodeColors;
       const intArr = this.electrodeIntensity;
       const dirArr = this.electrodeDirs;
 
-      model.traverse((child) => {
-        if (!(child as THREE.Mesh).isMesh) return;
-        const mesh = child as THREE.Mesh;
+      const uniforms = {
+        uElectrodeDir: { value: dirArr },
+        uElectrodeColor: { value: colArr },
+        uElectrodeIntensity: { value: intArr },
+      };
 
-        const geo = mesh.geometry;
-        geo.computeBoundingSphere();
-        const meshCenter = geo.boundingSphere!.center;
+      const mat = new THREE.MeshPhysicalMaterial({
+        color: 0x0d3050,
+        roughness: 0.6,
+        metalness: 0.0,
+        transparent: true,
+        opacity: 0.25,
+        side: THREE.DoubleSide,
+        emissive: new THREE.Color(0x0a3050),
+        emissiveIntensity: 0.2,
+        depthWrite: false,
+      });
+      mat.clippingPlanes = [];
 
-        const uniforms = {
-          uElectrodeDir: { value: dirArr },
-          uElectrodeColor: { value: colArr },
-          uElectrodeIntensity: { value: intArr },
-          uMeshCenter: { value: new THREE.Vector3().copy(meshCenter) },
-          // Controls how tight the glow cone is (higher = tighter)
-          uGlowSharpness: { value: 10.0 },
-        };
-
-        const mat = new THREE.MeshPhysicalMaterial({
-          color: 0x0d3050,
-          roughness: 0.6,
-          metalness: 0.0,
-          transparent: true,
-          opacity: 0.25,
-          side: THREE.DoubleSide,
-          emissive: new THREE.Color(0x0a3050),
-          emissiveIntensity: 0.2,
-          depthWrite: false,
-        });
-
-        mat.onBeforeCompile = (shader) => {
-          shader.uniforms.uElectrodeDir = uniforms.uElectrodeDir;
-          shader.uniforms.uElectrodeColor = uniforms.uElectrodeColor;
-          shader.uniforms.uElectrodeIntensity = uniforms.uElectrodeIntensity;
-          shader.uniforms.uMeshCenter = uniforms.uMeshCenter;
-          shader.uniforms.uGlowSharpness = uniforms.uGlowSharpness;
+      mat.onBeforeCompile = (shader) => {
+        shader.uniforms.uElectrodeDir = uniforms.uElectrodeDir;
+        shader.uniforms.uElectrodeColor = uniforms.uElectrodeColor;
+        shader.uniforms.uElectrodeIntensity = uniforms.uElectrodeIntensity;
 
           shader.vertexShader = shader.vertexShader.replace(
             '#include <common>',
@@ -242,8 +254,6 @@ vWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;`
 uniform vec3 uElectrodeDir[${NUM_ELECTRODES}];
 uniform vec3 uElectrodeColor[${NUM_ELECTRODES}];
 uniform float uElectrodeIntensity[${NUM_ELECTRODES}];
-uniform vec3 uMeshCenter;
-uniform float uGlowSharpness;
 varying vec3 vObjPos;
 varying vec3 vWorldNormal;
 varying vec3 vWorldPosition;`
@@ -261,12 +271,16 @@ vec3 edgeColor = vec3(0.15, 0.75, 0.95); // cyan hologram edge
 totalEmissiveRadiance += edgeColor * fresnel * 0.2;
 
 // Subtle scan-line effect
-float scanLine = sin(vObjPos.y * 120.0) * 0.5 + 0.5;
-scanLine = smoothstep(0.3, 0.7, scanLine);
-totalEmissiveRadiance += edgeColor * scanLine * fresnel * 0.15;
+// float scanLine = sin(vObjPos.y * 120.0) * 0.5 + 0.5;
+// scanLine = smoothstep(0.3, 0.7, scanLine);
+// totalEmissiveRadiance += edgeColor * scanLine * fresnel * 0.15;
 
-// ── Electrode glow (preserved) ──
-vec3 vertDir = normalize(vObjPos - uMeshCenter);
+// ── Depth mask: outer cortex gets glow, inner folds fade out ──
+float vertDepth = length(vWorldPosition);
+float outerMask = smoothstep(0.05, 0.2, vertDepth);
+
+// ── Electrode glow — world-space directions for consistency across meshes ──
+vec3 vertDir = normalize(vWorldPosition);
 vec3 glow = vec3(0.0);
 float totalWeight = 0.0;
 for (int i = 0; i < ${NUM_ELECTRODES}; i++) {
@@ -275,17 +289,41 @@ for (int i = 0; i < ${NUM_ELECTRODES}; i++) {
   float core = smoothstep(0.82, 0.92, alignment);
   float halo = smoothstep(0.65, 0.82, alignment) * 0.15;
   float falloff = core + halo;
-  float w = uElectrodeIntensity[i] * falloff;
+  float w = uElectrodeIntensity[i] * falloff * outerMask;
   glow += uElectrodeColor[i] * w;
   totalWeight += w;
 }
 if (totalWeight > 1.0) glow /= totalWeight;
-totalEmissiveRadiance += glow * min(totalWeight, 1.0) * 0.8;`
+float glowStrength = min(totalWeight, 1.0);
+// Store glow for post-tonemapping application (avoid ACES desaturation)
+vec3 electrodeGlow = glow * glowStrength * 0.8;`
+          );
+
+          // Apply glow color AFTER tone mapping to preserve saturation
+          shader.fragmentShader = shader.fragmentShader.replace(
+            '#include <opaque_fragment>',
+            `#include <opaque_fragment>
+// Apply electrode glow after tone mapping so colors stay saturated
+vec3 vertDir2 = normalize(vWorldPosition);
+float regionAlpha = 0.0;
+for (int i = 0; i < ${NUM_ELECTRODES}; i++) {
+  float alignment = dot(vertDir2, uElectrodeDir[i]);
+  float core = smoothstep(0.82, 0.92, alignment);
+  regionAlpha = max(regionAlpha, uElectrodeIntensity[i] * core);
+}
+gl_FragColor.rgb += electrodeGlow;
+// Inner brain folds: make more transparent so outer colored cortex shows through
+float depth2 = length(vWorldPosition);
+float outerFactor = smoothstep(0.05, 0.2, depth2);
+gl_FragColor.a *= mix(0.25, 1.0, outerFactor);
+// Make active regions nearly opaque so glow doesn't depend on layer stacking
+gl_FragColor.a = mix(gl_FragColor.a, 1.0, regionAlpha);`
           );
         };
 
-        mesh.material = mat;
-      });
+      const brainMesh = new THREE.Mesh(merged, mat);
+      this.brainGroup.add(brainMesh);
+      this.brainModel = brainMesh;
 
       const labelRadius = 70 * scale;
       this.createLabels(labelRadius);
@@ -366,12 +404,30 @@ totalEmissiveRadiance += glow * min(totalWeight, 1.0) * 0.8;`
     new ResizeObserver(resize).observe(container);
   }
 
+  private _tempVec = new THREE.Vector3();
+
   private animate = (): void => {
     this.animId = requestAnimationFrame(this.animate);
     this.currentRotX += (this.targetRotX - this.currentRotX) * 0.08;
     this.currentRotZ += (this.targetRotZ - this.currentRotZ) * 0.08;
     this.spinAngle += 0.003;
     this.brainGroup.rotation.set(this.currentRotX, this.spinAngle, this.currentRotZ);
+
+    // Rotate electrode directions from brain-local to world space
+    // so the shader's world-space vertDir matches consistently
+    const q = this.brainGroup.quaternion;
+    for (let i = 0; i < NUM_ELECTRODES; i++) {
+      const off = i * 3;
+      this._tempVec.set(
+        this.electrodeRestDirs[off],
+        this.electrodeRestDirs[off + 1],
+        this.electrodeRestDirs[off + 2],
+      ).applyQuaternion(q);
+      this.electrodeDirs[off] = this._tempVec.x;
+      this.electrodeDirs[off + 1] = this._tempVec.y;
+      this.electrodeDirs[off + 2] = this._tempVec.z;
+    }
+
     this.renderer.render(this.scene, this.camera);
   };
 
