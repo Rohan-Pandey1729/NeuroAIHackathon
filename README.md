@@ -141,6 +141,34 @@ For a clean, repeatable demo:
 
 ---
 
+## Analysis Metrics
+
+After recording EEG across study techniques, `analyze.py` computes the following metrics per technique and ranks them using a composite learning score.
+
+| Metric | What it measures | How it's calculated |
+|---|---|---|
+| **Frontal Theta Power** | Memory encoding activity | Average power in the 4–8 Hz (theta) band at F3/F4, estimated via Welch's PSD method |
+| **Frontal Gamma Power** | Active cognitive binding | Average power in the 30–50 Hz (gamma) band at F3/F4 |
+| **Engagement Index** | Sustained focused attention | `beta_power / (alpha_power + theta_power)` at frontal channels (beta=13–30 Hz, alpha=8–13 Hz) |
+| **F-P Theta Coherence** | Long-range memory network activation | Magnitude-squared coherence between frontal (F3/F4) and parietal (P3/P4) channels in the theta band (0=independent, 1=perfectly in sync) |
+| **F-T Theta Coherence** | Memory encoding circuit activation | Magnitude-squared coherence between frontal (F3/F4) and temporal (T3/T4) channels in the theta band |
+
+### Composite Learning Score
+
+The composite score is a weighted sum of all metrics, computed **relative to baseline** (resting state):
+
+```
+Score = 0.30 * frontal_theta
+      + 0.25 * frontal_parietal_coherence
+      + 0.20 * engagement_index
+      + 0.15 * frontal_gamma
+      + 0.10 * frontal_temporal_coherence
+```
+
+Each value is the **% change from baseline**: `(technique - baseline) / baseline`. A higher score means that technique activated stronger learning-related neural signatures compared to resting state.
+
+---
+
 ## Scientific Framing
 
 NeuralTrace does **not** claim to show individual synapses or neurons — this is physically impossible with surface EEG. What it shows is **functional connectivity** changing in real time, which is the standard neuroscientific proxy for learning-driven network reorganization. Theta-gamma coupling and inter-regional coherence are well-studied EEG signatures of memory encoding (Helfrich & Knight, 2016; Fell & Axmacher, 2011).
