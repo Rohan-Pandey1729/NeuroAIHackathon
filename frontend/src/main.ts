@@ -19,10 +19,12 @@ app.innerHTML = `
   </div>
   <div id="status">Connecting...</div>
   <div id="info"></div>
-  <div id="recorder-mount"></div>
   <div id="main-layout">
     <div id="brain-container"></div>
-    <div id="channels"></div>
+    <div id="right-panel">
+      <div id="recorder-mount"></div>
+      <div id="channels"></div>
+    </div>
   </div>
 `;
 
