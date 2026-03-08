@@ -48,9 +48,9 @@ async def stream_eeg():
 
     # International 10-20 electrode names, ordered by Cyton pin (N1P → N8P).
     # Wiring: N1P=F3(grey), N2P=F4(purple), N3P=C4(blue), N4P=C3(green),
-    #         N5P=T6(yellow), N6P=T5(orange), N7P=O2(red), N8P=O1(brown),
+    #         N5P=T4(yellow), N6P=T3(orange), N7P=P4(red), N8P=P3(brown),
     #         then ear references A1(left), A2(right).
-    CHANNEL_NAMES_10_20 = ["F3", "F4", "C4", "C3", "T6", "T5", "O2", "O1", "A1", "A2"]
+    CHANNEL_NAMES_10_20 = ["F3", "F4", "C4", "C3", "T4", "T3", "P4", "P3", "A1", "A2"]
 
     # FFT bandpass filter: rolling buffer per channel for clean filtering.
     # We accumulate >=1s of data so the FFT has good frequency resolution,
