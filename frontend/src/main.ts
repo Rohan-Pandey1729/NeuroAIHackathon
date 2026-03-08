@@ -5,11 +5,29 @@ import { BrainScene } from './brain3d.ts'
 import { RecorderUI } from './recorder-ui.ts'
 import { NeuralAnimPopup } from './neural-anim.ts'
 
-const CHANNEL_COLORS = [
+// Channel colors matching brain region colors from brain3d.ts
+const CHANNEL_COLOR_MAP: Record<string, string> = {
+  F3: '#1e88ff',  // Frontal — vivid blue
+  F4: '#1e88ff',
+  C3: '#2ee650',  // Central — vivid green
+  C4: '#2ee650',
+  T3: '#ff8800',  // Temporal — vivid orange
+  T4: '#ffe600',  // Temporal — vivid yellow
+  P3: '#cc6633',  // Parietal — rich brown
+  P4: '#ff2222',  // Parietal — vivid red
+  A1: '#88ccee',  // Ear references — light cyan
+  A2: '#88ccee',
+};
+const FALLBACK_COLORS = [
   '#ff6384', '#36a2eb', '#ffce56', '#4bc0c0',
   '#9966ff', '#ff9f40', '#c9cbcf', '#7bc043',
   '#e6194b', '#3cb44b',
 ];
+
+function channelColor(index: number): string {
+  const name = currentChannelNames[index];
+  return CHANNEL_COLOR_MAP[name] ?? FALLBACK_COLORS[index % FALLBACK_COLORS.length];
+}
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML = `
@@ -105,7 +123,7 @@ function renderChannels(count: number, channelNames: string[]): void {
 
     const label = document.createElement('span');
     label.className = 'channel-label';
-    label.style.color = CHANNEL_COLORS[i % CHANNEL_COLORS.length];
+    label.style.color = channelColor(i);
     label.textContent = channelNames[i] ?? `CH${i + 1}`;
 
     const canvas = document.createElement('canvas');
@@ -214,7 +232,7 @@ function drawChannel(index: number, samples: number[]): void {
   ctx.restore();
 
   // ── Waveform (Catmull-Rom spline) ──
-  ctx.strokeStyle = CHANNEL_COLORS[index % CHANNEL_COLORS.length];
+  ctx.strokeStyle = channelColor(index);
   ctx.lineWidth = 1.5;
   ctx.beginPath();
 
