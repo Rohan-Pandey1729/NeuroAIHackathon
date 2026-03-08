@@ -3,6 +3,7 @@ import { onEegData } from './socket.ts'
 import type { EegMessage } from './socket.ts'
 import { BrainScene } from './brain3d.ts'
 import { RecorderUI } from './recorder-ui.ts'
+import { NeuralAnimPopup } from './neural-anim.ts'
 
 const CHANNEL_COLORS = [
   '#ff6384', '#36a2eb', '#ffce56', '#4bc0c0',
@@ -48,6 +49,18 @@ const brainContainer = document.querySelector<HTMLDivElement>('#brain-container'
 
 // Initialize 3D brain visualization
 const brainScene = new BrainScene(brainContainer);
+
+// Neural connection animation on electrode click
+let activeNeural: NeuralAnimPopup | null = null;
+let activeElectrode = '';
+brainScene.onElectrodeClick((name, color) => {
+  if (activeNeural) return;
+  activeElectrode = name;
+  activeNeural = new NeuralAnimPopup(name, color, () => {
+    activeNeural = null;
+    activeElectrode = '';
+  });
+});
 
 const DISPLAY_SAMPLES = 500;
 const AXIS_WIDTH = 48; // px reserved for Y-axis labels
@@ -203,6 +216,18 @@ onEegData((data: EegMessage) => {
   const totalPending = pendingQueues[0]?.length ?? 0;
   const framesUntilNext = 6; // ~100ms / 16.6ms
   samplesPerFrame = Math.max(1, Math.ceil(totalPending / framesUntilNext));
+
+  // Feed live intensity to neural animation popup
+  if (activeNeural && activeElectrode) {
+    const chIdx = (data.channel_names ?? []).indexOf(activeElectrode);
+    if (chIdx >= 0 && data.channels[chIdx]) {
+      const samples = data.channels[chIdx];
+      let sumSq = 0;
+      for (const v of samples) sumSq += v * v;
+      const rms = Math.sqrt(sumSq / samples.length);
+      activeNeural.updateIntensity(Math.min(rms / 80, 1.0));
+    }
+  }
 
   // Update 3D brain electrode glow from EEG activity
   brainScene.updateActivity(data.channel_names ?? [], data.channels);

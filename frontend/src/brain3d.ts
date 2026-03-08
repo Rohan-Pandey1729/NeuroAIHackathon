@@ -2,17 +2,22 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 // ── International 10-20 electrode positions (unit sphere directions) ────
+// Derived from standard 10-20 spherical coordinates:
+//   θ = polar angle from vertex (Cz), φ = azimuth from front (+Z)
+//   C3/C4: θ=36°, φ=±90°  |  T3/T4: θ=72°, φ=±90°
+//   F3/F4: θ=46°, φ=±50°  |  P3/P4: θ=46°, φ=±130°
+//   A1/A2: θ=100°, φ=±90° (below ear)
 const ELECTRODE_POSITIONS: Record<string, [number, number, number]> = {
-  F3:  [-0.42,  0.74,  0.52],   // left frontal
-  F4:  [ 0.42,  0.74,  0.52],   // right frontal
-  C3:  [-0.71,  0.71,  0.00],   // left central
-  C4:  [ 0.71,  0.71,  0.00],   // right central
-  T3:  [-0.95,  0.31,  0.00],   // left temporal
-  T4:  [ 0.95,  0.31,  0.00],   // right temporal
-  P3:  [-0.39,  0.55, -0.59],   // left parietal
-  P4:  [ 0.39,  0.55, -0.59],   // right parietal
-  A1:  [-0.95, -0.10,  0.00],   // left earlobe reference
-  A2:  [ 0.95, -0.10,  0.00],   // right earlobe reference
+  F3:  [-0.551,  0.695,  0.462],   // left frontal
+  F4:  [ 0.551,  0.695,  0.462],   // right frontal
+  C3:  [-0.588,  0.809,  0.000],   // left central
+  C4:  [ 0.588,  0.809,  0.000],   // right central
+  T3:  [-0.951,  0.309,  0.000],   // left temporal
+  T4:  [ 0.951,  0.309,  0.000],   // right temporal
+  P3:  [-0.551,  0.695, -0.462],   // left parietal
+  P4:  [ 0.551,  0.695, -0.462],   // right parietal
+  A1:  [-0.985, -0.174,  0.000],   // left earlobe reference
+  A2:  [ 0.985, -0.174,  0.000],   // right earlobe reference
 };
 
 const REGION_COLORS: Record<string, THREE.Color> = {
@@ -49,6 +54,12 @@ export class BrainScene {
   private electrodeDirs = new Float32Array(NUM_ELECTRODES * 3);
   private intensities: number[] = new Array(NUM_ELECTRODES).fill(0);
   private labels: THREE.Sprite[] = [];
+
+  // Raycasting for click detection
+  private raycaster = new THREE.Raycaster();
+  private mouse = new THREE.Vector2();
+  private brainModel: THREE.Object3D | null = null;
+  private clickCb: ((name: string, color: { r: number; g: number; b: number }) => void) | null = null;
 
   constructor(container: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -96,7 +107,52 @@ export class BrainScene {
     this.loadBrain();
     this.handleResize(container);
     this.animate();
+
+    // Click detection
+    this.renderer.domElement.style.cursor = 'pointer';
+    this.renderer.domElement.addEventListener('click', this.handleClick);
   }
+
+  onElectrodeClick(cb: (name: string, color: { r: number; g: number; b: number }) => void): void {
+    this.clickCb = cb;
+  }
+
+  private handleClick = (event: MouseEvent): void => {
+    if (!this.clickCb || !this.brainModel) return;
+
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+    this.raycaster.setFromCamera(this.mouse, this.camera);
+    const intersects = this.raycaster.intersectObjects([this.brainModel], true);
+    if (intersects.length === 0) return;
+
+    // Determine direction from brain center in local space
+    const localPt = this.brainGroup.worldToLocal(intersects[0].point.clone());
+    const dir = localPt.normalize();
+
+    // Find nearest electrode by dot product
+    let bestIdx = -1;
+    let bestDot = -1;
+    for (let i = 0; i < NUM_ELECTRODES; i++) {
+      const ex = this.electrodeDirs[i * 3];
+      const ey = this.electrodeDirs[i * 3 + 1];
+      const ez = this.electrodeDirs[i * 3 + 2];
+      const dot = dir.x * ex + dir.y * ey + dir.z * ez;
+      if (dot > bestDot) {
+        bestDot = dot;
+        bestIdx = i;
+      }
+    }
+
+    // Only trigger if reasonably close to an electrode and it has some signal
+    if (bestIdx >= 0 && bestDot > 0.65 && this.electrodeIntensity[bestIdx] > 0.01) {
+      const name = ELECTRODE_NAMES[bestIdx];
+      const c = REGION_COLORS[name];
+      this.clickCb(name, { r: c.r, g: c.g, b: c.b });
+    }
+  };
 
   private loadBrain(): void {
     const loader = new GLTFLoader();
@@ -113,6 +169,7 @@ export class BrainScene {
       model.position.sub(center.multiplyScalar(scale));
 
       this.brainGroup.add(model);
+      this.brainModel = model;
       this.brainGroup.updateMatrixWorld(true);
 
       const colArr = this.electrodeColors;

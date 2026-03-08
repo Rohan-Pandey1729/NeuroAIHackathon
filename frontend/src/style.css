@@ -300,6 +300,62 @@ canvas {
   vertical-align: middle;
 }
 
+/* Neural animation popup */
+.neural-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  transition: background 0.3s;
+  cursor: pointer;
+}
+
+.neural-overlay-visible {
+  background: rgba(0, 0, 0, 0.75);
+}
+
+.neural-popup {
+  background: #0d0d1a;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 1.5rem;
+  cursor: default;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  opacity: 0;
+  transform: scale(0.95);
+  transition: opacity 0.3s, transform 0.3s;
+}
+
+.neural-overlay-visible .neural-popup {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.neural-title {
+  font-size: 1.1em;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+  text-align: center;
+}
+
+.neural-canvas {
+  border-radius: 8px;
+  display: block;
+}
+
+.neural-hint {
+  text-align: center;
+  font-size: 0.7em;
+  color: #555;
+  margin-top: 0.5rem;
+}
+
 @media (max-width: 900px) {
   #main-layout {
     flex-direction: column;
