@@ -1,6 +1,6 @@
 import './style.css'
 import { onEegData, onModeChange, connectCyton, isSerialSupported, getMode, useSynthetic } from './socket.ts'
-import type { EegMessage } from './socket.ts'
+import type { EegMessage, CytonMode } from './socket.ts'
 import { BrainScene } from './brain3d.ts'
 import { RecorderUI } from './recorder-ui.ts'
 import { NeuralAnimPopup } from './neural-anim.ts'
@@ -156,7 +156,6 @@ function renderChannels(count: number, channelNames: string[]): void {
 
     const canvas = document.createElement('canvas');
     canvas.id = `ch-${i}`;
-    canvas.width = 600;
     canvas.height = 64;
 
     row.appendChild(label);
@@ -304,11 +303,16 @@ function drawChannel(index: number, samples: number[]): void {
 }
 
 // ── Connection mode status ──
-function updateModeStatus(mode: 'serial' | 'synthetic' | 'idle'): void {
+function updateModeStatus(mode: CytonMode): void {
   if (mode === 'serial') {
     statusEl.textContent = 'Cyton Connected';
     statusEl.className = 'connected';
     if (connectBtn) { connectBtn.textContent = 'Disconnect'; connectBtn.disabled = false; }
+    syntheticBtn.style.display = '';
+  } else if (mode === 'connecting') {
+    statusEl.textContent = 'Connecting...';
+    statusEl.className = '';
+    if (connectBtn) { connectBtn.textContent = 'Connecting...'; connectBtn.disabled = true; }
     syntheticBtn.style.display = '';
   } else if (mode === 'synthetic') {
     statusEl.textContent = 'Synthetic Mode';

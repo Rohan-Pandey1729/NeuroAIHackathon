@@ -5,7 +5,8 @@
  */
 
 import { CytonSource, isSerialSupported } from './cyton-serial.ts';
-export type { EegMessage } from './cyton-serial.ts';
+import type { CytonMode } from './cyton-serial.ts';
+export type { EegMessage, CytonMode } from './cyton-serial.ts';
 
 const _source = new CytonSource();
 
@@ -15,7 +16,7 @@ export function onEegData(handler: (data: import('./cyton-serial.ts').EegMessage
   _source.onData(handler);
 }
 
-export function onModeChange(handler: (mode: 'serial' | 'synthetic' | 'idle') => void): void {
+export function onModeChange(handler: (mode: CytonMode) => void): void {
   _source.onModeChange(handler);
 }
 
@@ -33,7 +34,7 @@ export async function useSynthetic(): Promise<void> {
   _source.startSynthetic();
 }
 
-export function getMode(): 'serial' | 'synthetic' | 'idle' {
+export function getMode(): CytonMode {
   return _source.mode;
 }
 

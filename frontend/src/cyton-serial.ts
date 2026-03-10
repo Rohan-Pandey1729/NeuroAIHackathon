@@ -23,7 +23,8 @@ export interface EegMessage {
 }
 
 type DataHandler = (msg: EegMessage) => void;
-type ModeChangeHandler = (mode: 'serial' | 'synthetic' | 'idle') => void;
+export type CytonMode = 'serial' | 'connecting' | 'synthetic' | 'idle';
+type ModeChangeHandler = (mode: CytonMode) => void;
 
 const PACKET_LEN = 33;
 const START_BYTE = 0xa0;
@@ -64,7 +65,7 @@ export function isSerialSupported(): boolean {
 }
 
 export class CytonSource {
-  mode: 'serial' | 'synthetic' | 'idle' = 'idle';
+  mode: CytonMode = 'idle';
 
   private readonly dataListeners: DataHandler[] = [];
   private readonly modeListeners: ModeChangeHandler[] = [];
@@ -103,17 +104,12 @@ export class CytonSource {
       this.port = await (navigator as Navigator & { serial: Serial }).serial.requestPort();
       await this.port.open({ baudRate: 115200 });
 
-      // Send 'b' to start streaming
-      if (this.port.writable) {
-        const writer = this.port.writable.getWriter();
-        await writer.write(new Uint8Array([0x62])); // 'b'
-        writer.releaseLock();
-      }
-
-      this._setMode('serial');
-      this.serialRunning = true;
+      this._setMode('connecting');
       this._stopSynthetic();
-      void this._readLoop();
+      this.serialRunning = true;
+
+      // Wait for board ready string (ends with "$$$"), then start streaming
+      void this._initAndStream();
       return true;
     } catch {
       // User cancelled picker or device error — stay in current mode
@@ -121,8 +117,43 @@ export class CytonSource {
     }
   }
 
+  /** Read board startup text until "$$$" appears, then send 'b' to begin streaming. */
+  private async _initAndStream(): Promise<void> {
+    if (!this.port?.readable) return;
+
+    const decoder = new TextDecoder();
+    const reader = this.port.readable.getReader();
+    let initText = '';
+    let timedOut = false;
+    const timeout = window.setTimeout(() => { timedOut = true; reader.cancel().catch(() => {}); }, 5000);
+
+    try {
+      while (!timedOut) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        initText += decoder.decode(value, { stream: true });
+        if (initText.includes('$$$')) break;
+      }
+    } catch { /* cancelled or error */ }
+    finally {
+      clearTimeout(timeout);
+      reader.releaseLock();
+    }
+
+    if (!this.serialRunning) return;
+
+    // Send 'b' to start streaming
+    if (this.port.writable) {
+      const writer = this.port.writable.getWriter();
+      await writer.write(new Uint8Array([0x62])); // 'b'
+      writer.releaseLock();
+    }
+
+    void this._readLoop();
+  }
+
   startSynthetic(): void {
-    if (this.mode === 'serial') return;
+    if (this.mode === 'serial' || this.mode === 'connecting') return;
     if (this.synthInterval !== null) return;
     this._setMode('synthetic');
     this.synthInterval = window.setInterval(() => this._emitSynthetic(), 100);
@@ -152,7 +183,7 @@ export class CytonSource {
     }
   }
 
-  private _setMode(m: 'serial' | 'synthetic' | 'idle'): void {
+  private _setMode(m: CytonMode): void {
     this.mode = m;
     for (const h of this.modeListeners) h(m);
   }
@@ -221,6 +252,9 @@ export class CytonSource {
         this.chunkChannels[ch].push(this.filters[ch].process(raw));
       }
       this.chunkTimestamps.push(ts);
+
+      // Confirm board is live on first packet
+      if (this.mode === 'connecting') this._setMode('serial');
 
       if (this.chunkTimestamps.length >= EMIT_CHUNK) {
         this._flushChunk();
