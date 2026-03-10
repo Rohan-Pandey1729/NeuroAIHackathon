@@ -1,4 +1,6 @@
-import { startRecording, stopRecording } from './api';
+import { startRecording, stopRecording, getRecordings } from './api';
+import type { AnalysisResult } from './analyze';
+import AnalyzeWorker from './analyze.worker?worker';
 
 const TECHNIQUES = [
   { id: 'active_recall', name: 'Active Recall', desc: 'Test yourself on the material without looking at notes' },
@@ -184,8 +186,8 @@ export class RecorderUI {
           <span class="session-phase-label session-done-label">Complete</span>
         </div>
         <div class="session-bar-center">
-          <span class="session-technique-name">All trials recorded for <strong>${this.user}</strong> — CSVs downloaded</span>
-          <span class="session-technique-desc">Run <code>python backend/analyze.py --user ${this.user}</code> to analyze</span>
+          <span class="session-technique-name">All trials recorded for <strong>${this.user}</strong></span>
+          <span class="session-technique-desc" id="rec-analysis-status">Analyzing EEG data…</span>
         </div>
         <div class="session-bar-right">
           <button id="rec-close-btn" class="session-close" title="Close">&times;</button>
@@ -193,5 +195,68 @@ export class RecorderUI {
       </div>
     `;
     this.bar.querySelector<HTMLButtonElement>('#rec-close-btn')!.addEventListener('click', () => this.destroy());
+
+    // Run analysis in a Web Worker so the main thread stays responsive
+    const worker = new AnalyzeWorker();
+    const statusEl = () => this.bar.querySelector<HTMLSpanElement>('#rec-analysis-status');
+
+    worker.onmessage = (e: MessageEvent<import('./analyze.worker').WorkerResponse>) => {
+      worker.terminate();
+      if (e.data.ok) {
+        this.renderResults(e.data.result);
+        const el = statusEl();
+        if (el) el.textContent = `Best: ${e.data.result.best_technique.replace(/_/g, ' ')}`;
+      } else {
+        const el = statusEl();
+        if (el) el.textContent = `Analysis failed: ${e.data.error}`;
+      }
+    };
+
+    worker.onerror = (e) => {
+      worker.terminate();
+      const el = statusEl();
+      if (el) el.textContent = `Worker error: ${e.message}`;
+    };
+
+    worker.postMessage(getRecordings(this.user));
+  }
+
+  private renderResults(result: AnalysisResult): void {
+    this.resultsPanel.innerHTML = '';
+    const title = document.createElement('div');
+    title.className = 'results-title';
+    title.textContent = `Results for ${result.user}`;
+    this.resultsPanel.appendChild(title);
+
+    const TECHNIQUE_LABELS: Record<string, string> = {
+      active_recall: 'Active Recall',
+      feynman: 'Feynman Technique',
+      writing_notes: 'Writing Notes',
+      music_vs_no_music: 'Music',
+      baseline: 'Baseline',
+    };
+
+    result.ranking.forEach((item, i) => {
+      const row = document.createElement('div');
+      row.className = `results-row${i === 0 ? ' results-row-best' : ''}`;
+
+      const score = item.composite_score;
+      const scoreStr = score >= 0
+        ? `+${(score * 100).toFixed(1)}%`
+        : `${(score * 100).toFixed(1)}%`;
+      const label = TECHNIQUE_LABELS[item.technique] ?? item.technique.replace(/_/g, ' ');
+
+      row.innerHTML = `
+        <span class="results-rank">${i + 1}</span>
+        <span class="results-technique">${label}${i === 0 ? ' <span class="results-best-badge">BEST</span>' : ''}</span>
+        <span class="results-metrics">
+          θ ${(item.metrics['frontal_theta'] ?? 0).toFixed(2)}
+          &nbsp;γ ${(item.metrics['frontal_gamma'] ?? 0).toFixed(3)}
+          &nbsp;eng ${(item.metrics['engagement_index'] ?? 0).toFixed(2)}
+        </span>
+        <span class="results-score ${score >= 0 ? 'results-score-pos' : 'results-score-neg'}">${scoreStr}</span>
+      `;
+      this.resultsPanel.appendChild(row);
+    });
   }
 }

@@ -1,6 +1,5 @@
 /**
- * In-browser recording — replaces the Python backend API.
- * Buffers EEG samples in memory during recording and downloads CSVs on stop.
+ * In-browser recording — buffers EEG samples in RAM for in-browser processing.
  */
 
 import { onEegData } from './socket.ts';
@@ -14,15 +13,14 @@ export interface RecordStatus {
   user: string;
 }
 
-export interface AnalysisResult {
+/** A completed EEG recording stored in memory. */
+export interface Recording {
   user: string;
-  ranking: {
-    technique: string;
-    composite_score: number;
-    metrics: Record<string, number>;
-  }[];
-  best_technique: string;
-  baseline_metrics: Record<string, number> | null;
+  technique: string;
+  startTime: number; // Unix seconds
+  duration: number;  // seconds
+  /** channel name → [timestamp, value µV][] */
+  channels: Map<string, [number, number][]>;
 }
 
 // Recording state
@@ -31,8 +29,11 @@ let _user = '';
 let _technique = '';
 let _startTime = 0;
 let _duration = 0;
-// channel name → [[timestamp, value], ...]
+// channel name → [[timestamp, value], ...] (active buffer)
 const _buffers = new Map<string, [number, number][]>();
+
+// Completed recordings kept in RAM
+const _recordings: Recording[] = [];
 
 // Persistent listener that buffers samples while recording is active
 onEegData((msg: EegMessage) => {
@@ -60,37 +61,32 @@ export async function startRecording(user: string, technique: string, duration: 
 
 export async function stopRecording(): Promise<void> {
   _recording = false;
-  for (const [channelName, rows] of _buffers) {
-    if (rows.length > 0) {
-      _downloadCSV(`${_user}_${_technique}_${channelName}.csv`, rows);
-    }
+  const channels = new Map<string, [number, number][]>();
+  for (const [name, rows] of _buffers) {
+    if (rows.length > 0) channels.set(name, [...rows]);
   }
+  _recordings.push({
+    user: _user,
+    technique: _technique,
+    startTime: _startTime,
+    duration: _duration,
+    channels,
+  });
   _buffers.clear();
+}
+
+/** Return all completed recordings for a given user (or all if no user specified). */
+export function getRecordings(user?: string): Recording[] {
+  if (!user) return [..._recordings];
+  return _recordings.filter(r => r.user === user);
+}
+
+/** Clear all stored recordings from memory. */
+export function clearRecordings(): void {
+  _recordings.length = 0;
 }
 
 export async function getRecordStatus(): Promise<RecordStatus> {
   const elapsed = _recording ? Date.now() / 1000 - _startTime : 0;
   return { recording: _recording, technique: _technique, elapsed, duration: _duration, user: _user };
-}
-
-export async function runAnalysis(user: string): Promise<AnalysisResult> {
-  throw new Error(
-    'Analysis requires the Python backend. Download your CSVs and run:\n' +
-    `  python backend/analyze.py --user ${user}`,
-  );
-}
-
-export async function listUsers(): Promise<string[]> {
-  throw new Error('User listing requires the Python backend.');
-}
-
-function _downloadCSV(filename: string, rows: [number, number][]): void {
-  const csv = 'timestamp,value\n' + rows.map(([t, v]) => `${t},${v}`).join('\n');
-  const blob = new Blob([csv], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
 }
