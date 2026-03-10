@@ -48,17 +48,17 @@ OpenBCI Cyton Board (8 channels)
     USB Serial (Web Serial API)
           |
   Browser Frontend (Vite + TypeScript + Three.js)
-  ├── cyton-serial.ts  — Web Serial driver: Cyton packet parsing, synthetic fallback
-  ├── dsp.ts           — Real-time bandpass filter (1–50 Hz) per channel
-  ├── brain3d.ts       — 3D brain mesh, electrode glow shader, click raycasting
-  ├── neural-anim.ts   — 3D neural animation popup (Three.js) with edu annotations
-  ├── neuro-model.ts   — Biophysical EEG forward/inverse model (4-sphere volume conductor)
-  ├── main.ts          — App entry: EEG chart rendering, smooth sample interpolation
-  ├── recorder-ui.ts   — Recording session UI
-  ├── api.ts           — In-browser recording: buffers EEG in RAM
-  ├── analyze.ts       — Band power, coherence, composite learning score (TypeScript port)
-  ├── analyze.worker.ts— Web Worker wrapper for analysis (keeps UI thread unblocked)
-  └── socket.ts        — Internal EEG event bus (replaces WebSocket)
+  ├── cyton-serial.ts    — Web Serial driver: Cyton packet parsing, synthetic fallback
+  ├── dsp.ts             — Real-time bandpass filter (1–50 Hz) per channel
+  ├── brain3d.ts         — 3D brain mesh, electrode glow shader, click raycasting
+  ├── neural-anim.ts     — 3D neural animation popup (Three.js) with edu annotations
+  ├── neuro-model.ts     — Biophysical EEG forward/inverse model (4-sphere volume conductor)
+  ├── main.ts            — App entry: EEG chart rendering, smooth sample interpolation
+  ├── recorder-ui.ts     — Recording session UI
+  ├── api.ts             — In-browser recording: buffers EEG in RAM
+  ├── analyze.ts         — Band power, coherence, composite learning score (TypeScript port)
+  ├── analyze.worker.ts  — Web Worker wrapper for analysis (keeps UI thread unblocked)
+  └── socket.ts          — Internal EEG event bus (replaces WebSocket)
 ```
 
 ---
