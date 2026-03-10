@@ -4,13 +4,17 @@
 
 ![Status](https://img.shields.io/badge/status-hackathon--build-brightgreen)
 ![Hardware](https://img.shields.io/badge/hardware-OpenBCI%20Cyton-blue)
-![Stack](https://img.shields.io/badge/stack-Python%20%7C%20FastAPI%20%7C%20Three.js-purple)
+![Stack](https://img.shields.io/badge/stack-TypeScript%20%7C%20Web%20Serial%20%7C%20Three.js-purple)
+
+**[Live Demo](https://rohan-pandey1729.github.io/NeuroAIHackathon/)**
+
+> **Note:** Live EEG from hardware requires a browser with [Web Serial API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Serial_API) support (Chrome or Edge 89+). Firefox and Safari are not supported for hardware streaming. The app works in any browser using synthetic EEG data.
 
 ---
 
 ## What is NeuralTrace?
 
-NeuralTrace reads live EEG signals from an OpenBCI Cyton board and renders a real-time 3D brain visualization that glows in response to neural activity. It serves two audiences:
+NeuralTrace reads live EEG signals from an OpenBCI Cyton board **directly in the browser** via the Web Serial API — no backend required. It renders a real-time 3D brain visualization that glows in response to neural activity and serves two audiences:
 
 1. **Learners** — see your own brain activity while studying, compare techniques, and find which method produces the strongest learning-related neural signatures.
 2. **Educators** — use the interactive 3D brain and neural connection animations as a teaching tool for neuroscience concepts (action potentials, synapses, brain regions).
@@ -22,38 +26,39 @@ Click any glowing electrode region on the 3D brain to open an animated visualiza
 ## Features
 
 - **3D brain model** with 10 electrode positions mapped to the International 10-20 system, rendered with Three.js
-- **Live EEG streaming** from OpenBCI Cyton via BrainFlow, with FFT bandpass filtering (1-50 Hz)
+- **Live EEG streaming** directly from an OpenBCI Cyton via the browser's **Web Serial API** — no Python/backend needed
+- **Synthetic EEG fallback** — automatically generates realistic synthetic signals when no hardware is connected
 - **Per-channel waveform charts** with Y-axis magnitude labels and smooth interpolated updates
 - **Electrode glow** on the 3D brain surface scaled by real-time RMS amplitude
 - **Head orientation tracking** from the board's accelerometer
 - **Neural connection popup** — click any lit electrode to see an animated neural network forming, with firing rate driven by live EEG intensity
 - **Educational annotations** — the popup labels neurons, dendrites, axons, action potentials, and synapses, and describes the brain region's function
-- **Recording system** — record EEG sessions per user/technique, saved as CSV + metadata JSON
-- **Analysis engine** — compute learning metrics (theta power, gamma power, engagement index, coherence) and rank study techniques by composite score
+- **In-browser recording** — record EEG sessions per user/technique, buffered in memory
+- **In-browser analysis** — compute learning metrics (theta power, gamma power, engagement index, coherence) via a Web Worker, no server calls needed
 
 ---
 
 ## System Architecture
 
+Everything runs in the browser:
+
 ```
 OpenBCI Cyton Board (8 channels)
           |
-    USB Serial
-          |
-  Python Backend (FastAPI + BrainFlow)
-  ├── server.py  — EEG streaming, WebSocket broadcast, recording API
-  └── analyze.py — Band power, coherence, composite learning score
-          |
-    WebSocket (ws://localhost:8000/ws)
+    USB Serial (Web Serial API)
           |
   Browser Frontend (Vite + TypeScript + Three.js)
-  ├── brain3d.ts      — 3D brain mesh, electrode glow shader, click raycasting
-  ├── neural-anim.ts  — 3D neural animation popup (Three.js) with edu annotations
-  ├── neuro-model.ts  — Biophysical EEG forward/inverse model (4-sphere volume conductor)
-  ├── main.ts         — EEG chart rendering, smooth sample interpolation
-  ├── recorder-ui.ts  — Recording session UI
-  ├── socket.ts       — WebSocket client
-  └── api.ts          — REST API client for recording/analysis
+  ├── cyton-serial.ts  — Web Serial driver: Cyton packet parsing, synthetic fallback
+  ├── dsp.ts           — Real-time bandpass filter (1–50 Hz) per channel
+  ├── brain3d.ts       — 3D brain mesh, electrode glow shader, click raycasting
+  ├── neural-anim.ts   — 3D neural animation popup (Three.js) with edu annotations
+  ├── neuro-model.ts   — Biophysical EEG forward/inverse model (4-sphere volume conductor)
+  ├── main.ts          — App entry: EEG chart rendering, smooth sample interpolation
+  ├── recorder-ui.ts   — Recording session UI
+  ├── api.ts           — In-browser recording: buffers EEG in RAM
+  ├── analyze.ts       — Band power, coherence, composite learning score (TypeScript port)
+  ├── analyze.worker.ts— Web Worker wrapper for analysis (keeps UI thread unblocked)
+  └── socket.ts        — Internal EEG event bus (replaces WebSocket)
 ```
 
 ---
@@ -62,7 +67,8 @@ OpenBCI Cyton Board (8 channels)
 
 - **OpenBCI Cyton Board** (8 EEG channels + 3-axis accelerometer)
 - **OpenBCI Ultracortex Mark IV** headset (or any compatible electrode cap)
-- Laptop/desktop running Python 3.10+
+- A browser that supports the **Web Serial API** (Chrome / Edge 89+)
+- No server, no Python runtime required
 
 ### Electrode Wiring (10-20 mapping)
 
@@ -84,28 +90,27 @@ OpenBCI Cyton Board (8 channels)
 
 ```
 NeuralTrace/
-├── backend/
-│   ├── server.py          # FastAPI server: EEG stream, WebSocket, recording & analysis APIs
-│   ├── analyze.py         # EEG analysis: band power, coherence, composite learning score
-│   └── requirements.txt   # Python dependencies
 ├── frontend/
 │   ├── src/
-│   │   ├── main.ts        # App entry: EEG charts with Y-axis, smooth interpolation
-│   │   ├── brain3d.ts     # Three.js 3D brain, electrode glow shader, click detection
-│   │   ├── neural-anim.ts # 3D neural animation popup (Three.js) with edu annotations
-│   │   ├── neuro-model.ts # Biophysical EEG forward/inverse model (4-sphere volume conductor)
-│   │   ├── recorder-ui.ts # Recording session UI panel
-│   │   ├── socket.ts      # WebSocket client
-│   │   ├── api.ts         # REST API client
-│   │   └── style.css      # Styles
-│   ├── public/            # Static assets (brain.glb)
+│   │   ├── main.ts            # App entry: EEG charts, smooth interpolation
+│   │   ├── cyton-serial.ts    # Web Serial driver + synthetic EEG fallback
+│   │   ├── dsp.ts             # Real-time bandpass filter
+│   │   ├── brain3d.ts         # Three.js 3D brain, electrode glow, click detection
+│   │   ├── neural-anim.ts     # 3D neural animation popup with edu annotations
+│   │   ├── neuro-model.ts     # Biophysical EEG forward/inverse model (4-sphere)
+│   │   ├── recorder-ui.ts     # Recording session UI panel
+│   │   ├── api.ts             # In-browser EEG recording (RAM buffers)
+│   │   ├── analyze.ts         # EEG analysis: band power, coherence, composite score
+│   │   ├── analyze.worker.ts  # Web Worker wrapper for analysis
+│   │   ├── socket.ts          # Internal EEG event bus
+│   │   └── style.css          # Styles
+│   ├── public/                # Static assets (brain.glb)
 │   ├── package.json
 │   └── vite.config.ts
-├── visualizer/
-│   └── index.html         # Connections visualizer page
-├── data/                  # Recorded EEG sessions (per user/technique)
-├── brain.glb              # 3D brain model
-├── requirements.txt
+├── backend/                   # Legacy Python backend (not required to run)
+│   ├── server.py
+│   ├── analyze.py
+│   └── requirements.txt
 └── README.md
 ```
 
@@ -113,40 +118,34 @@ NeuralTrace/
 
 ## Quickstart
 
-### 1. Install backend dependencies
-
-```bash
-cd backend
-pip install -r requirements.txt
-```
-
-### 2. Install frontend dependencies
+### 1. Install frontend dependencies
 
 ```bash
 cd frontend
 npm install
 ```
 
-### 3. Start the backend
+### 2. Start the dev server
 
 ```bash
-python backend/server.py --serial-port /dev/tty.usbserial-XXXX
-```
-
-Options:
-- `--board-id` — BrainFlow board ID (default: 0 for Cyton)
-- `--serial-port` — serial port for the Cyton dongle
-
-The backend starts streaming EEG on `http://127.0.0.1:8000` and serves the built frontend.
-
-### 4. Development mode (hot reload)
-
-```bash
-cd frontend
 npm run dev
 ```
 
-Then open `http://localhost:5173` (Vite dev server proxies API/WebSocket to the backend).
+Then open `http://localhost:5173` in Chrome or Edge (Web Serial API required).
+
+### 3. Connect your Cyton board
+
+Click **Connect Serial** in the UI and select the Cyton USB dongle port. The board will initialize and begin streaming automatically.
+
+If no hardware is available, NeuralTrace falls back to synthetic EEG so you can explore all features without a physical board.
+
+### 4. Build for production
+
+```bash
+npm run build
+```
+
+The output in `dist/` is a fully static site that can be hosted anywhere (e.g., GitHub Pages).
 
 ---
 
@@ -156,11 +155,11 @@ Then open `http://localhost:5173` (Vite dev server proxies API/WebSocket to the 
 
 1. Click **Record Session** in the UI
 2. Enter a username, technique name, and duration
-3. The system records all channels to `data/<user>/<technique>/` as CSV files + `meta.json`
+3. EEG data is buffered in memory during the session
 
 ### Analyzing techniques
 
-POST to `/api/analyze` with `{"user": "yourname"}` to get a ranked comparison of study techniques.
+After recording one or more sessions, click **Analyze** to compare study techniques. Analysis runs entirely in a Web Worker — no server call needed.
 
 ### Analysis Metrics
 
