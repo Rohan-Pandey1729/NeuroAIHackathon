@@ -1,47 +1,43 @@
-export interface EegMessage {
-  type: "eeg";
-  channels: number[][];
-  channel_names: string[];  // International 10-20 electrode names (e.g. "F3", "C4", "O1")
-  accel: number[];          // Accelerometer [x, y, z] from Cyton IMU
-  timestamps: number[];
-  sample_rate: number;
-  num_samples: number;
+/**
+ * EEG data source adapter.
+ * Replaces the previous WebSocket client with direct Cyton serial communication.
+ * Automatically falls back to synthetic data when Web Serial is unsupported.
+ */
+
+import { CytonSource, isSerialSupported } from './cyton-serial.ts';
+export type { EegMessage } from './cyton-serial.ts';
+
+const _source = new CytonSource();
+
+export { isSerialSupported };
+
+export function onEegData(handler: (data: import('./cyton-serial.ts').EegMessage) => void): void {
+  _source.onData(handler);
 }
 
-type MessageHandler = (data: EegMessage) => void;
-
-const wsUrl = `ws://${window.location.host}/ws`;
-let socket: WebSocket | null = null;
-const listeners: MessageHandler[] = [];
-
-export function onEegData(handler: MessageHandler): void {
-  listeners.push(handler);
+export function onModeChange(handler: (mode: 'serial' | 'synthetic' | 'idle') => void): void {
+  _source.onModeChange(handler);
 }
 
-function connect(): void {
-  socket = new WebSocket(wsUrl);
-
-  socket.onopen = () => {
-    console.log("WebSocket connected");
-  };
-
-  socket.onmessage = (event: MessageEvent) => {
-    const data: EegMessage = JSON.parse(event.data);
-    if (data.type === "eeg") {
-      for (const handler of listeners) {
-        handler(data);
-      }
-    }
-  };
-
-  socket.onclose = () => {
-    console.log("WebSocket disconnected, reconnecting...");
-    setTimeout(connect, 1000);
-  };
-
-  socket.onerror = () => {
-    socket?.close();
-  };
+export async function connectCyton(): Promise<boolean> {
+  return _source.connect();
 }
 
-connect();
+export function startSynthetic(): void {
+  _source.startSynthetic();
+}
+
+/** Stop any active serial connection and switch to synthetic data. */
+export async function useSynthetic(): Promise<void> {
+  await _source.stop();
+  _source.startSynthetic();
+}
+
+export function getMode(): 'serial' | 'synthetic' | 'idle' {
+  return _source.mode;
+}
+
+// Auto-start synthetic fallback on load
+if (!isSerialSupported()) {
+  _source.startSynthetic();
+}

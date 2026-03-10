@@ -174,7 +174,7 @@ export class BrainScene {
 
   private loadBrain(): void {
     const loader = new GLTFLoader();
-    loader.load('/brain.glb', (gltf) => {
+    loader.load(import.meta.env.BASE_URL + 'brain.glb', (gltf) => {
       const model = gltf.scene;
 
       // Compute bounding box before merging

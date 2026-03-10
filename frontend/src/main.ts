@@ -1,5 +1,5 @@
 import './style.css'
-import { onEegData } from './socket.ts'
+import { onEegData, onModeChange, connectCyton, isSerialSupported, getMode, useSynthetic } from './socket.ts'
 import type { EegMessage } from './socket.ts'
 import { BrainScene } from './brain3d.ts'
 import { RecorderUI } from './recorder-ui.ts'
@@ -36,11 +36,15 @@ app.innerHTML = `
       <h1>NeuralTrace</h1>
       <span id="status-pill">
         <span id="status-dot"></span>
-        <span id="status">Connecting...</span>
+        <span id="status">Starting...</span>
       </span>
       <span id="info"></span>
     </div>
-    <button id="record-session-btn" class="rec-btn rec-btn-primary rec-btn-record">Record Session</button>
+    <div id="topbar-right">
+      ${isSerialSupported() ? '<button id="connect-cyton-btn" class="rec-btn rec-btn-secondary">Connect Cyton</button>' : ''}
+      <button id="use-synthetic-btn" class="rec-btn rec-btn-ghost">Use Synthetic</button>
+      <button id="record-session-btn" class="rec-btn rec-btn-primary rec-btn-record">Record Session</button>
+    </div>
   </div>
   <div id="recorder-mount"></div>
   <div id="dashboard">
@@ -70,6 +74,28 @@ document.querySelector<HTMLButtonElement>('#record-session-btn')!.addEventListen
     }
   });
   observer.observe(mount, { childList: true });
+});
+
+// Connect Cyton button
+const connectBtn = document.querySelector<HTMLButtonElement>('#connect-cyton-btn');
+if (connectBtn) {
+  connectBtn.addEventListener('click', async () => {
+    connectBtn.disabled = true;
+    connectBtn.textContent = 'Connecting...';
+    const ok = await connectCyton();
+    if (!ok) {
+      connectBtn.disabled = false;
+      connectBtn.textContent = 'Connect Cyton';
+    }
+  });
+}
+
+// Use Synthetic button
+const syntheticBtn = document.querySelector<HTMLButtonElement>('#use-synthetic-btn')!;
+syntheticBtn.addEventListener('click', async () => {
+  syntheticBtn.disabled = true;
+  await useSynthetic();
+  syntheticBtn.disabled = false;
 });
 
 const statusEl = document.querySelector<HTMLDivElement>('#status')!;
@@ -267,10 +293,31 @@ function drawChannel(index: number, samples: number[]): void {
   ctx.stroke();
 }
 
+// ── Connection mode status ──
+function updateModeStatus(mode: 'serial' | 'synthetic' | 'idle'): void {
+  if (mode === 'serial') {
+    statusEl.textContent = 'Cyton Connected';
+    statusEl.className = 'connected';
+    if (connectBtn) { connectBtn.textContent = 'Disconnect'; connectBtn.disabled = false; }
+    syntheticBtn.style.display = '';
+  } else if (mode === 'synthetic') {
+    statusEl.textContent = 'Synthetic Mode';
+    statusEl.className = '';
+    if (connectBtn) { connectBtn.textContent = 'Connect Cyton'; connectBtn.disabled = false; }
+    syntheticBtn.style.display = 'none';
+  } else {
+    statusEl.textContent = 'Disconnected';
+    statusEl.className = '';
+    if (connectBtn) { connectBtn.textContent = 'Connect Cyton'; connectBtn.disabled = false; }
+    syntheticBtn.style.display = '';
+  }
+}
+onModeChange(updateModeStatus);
+// Set initial status based on current mode
+updateModeStatus(getMode());
+
 // ── Incoming data handler: queue samples instead of drawing immediately ──
 onEegData((data: EegMessage) => {
-  statusEl.textContent = 'Connected — streaming';
-  statusEl.className = 'connected';
   infoEl.textContent = `${data.channels.length} channels @ ${data.sample_rate} Hz | ${data.num_samples} samples`;
   renderChannels(data.channels.length, data.channel_names ?? []);
 
