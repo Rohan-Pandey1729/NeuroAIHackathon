@@ -175,7 +175,8 @@ body {
 }
 
 canvas {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   height: 64px;
   border-radius: 2px;
 }

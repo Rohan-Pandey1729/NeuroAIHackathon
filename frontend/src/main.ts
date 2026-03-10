@@ -182,7 +182,17 @@ function drawChannel(index: number, samples: number[]): void {
   const canvas = document.querySelector<HTMLCanvasElement>(`#ch-${index}`);
   if (!canvas) return;
   const ctx = canvas.getContext('2d')!;
-  const { width, height } = canvas;
+
+  // Sync canvas attribute size to actual CSS display size each frame
+  const cssW = Math.round(canvas.getBoundingClientRect().width);
+  const cssH = Math.round(canvas.getBoundingClientRect().height) || 64;
+  if (cssW > 0 && (canvas.width !== cssW || canvas.height !== cssH)) {
+    canvas.width = cssW;
+    canvas.height = cssH;
+  }
+
+  const width = canvas.width;
+  const height = canvas.height;
   const plotLeft = AXIS_WIDTH;
   const plotWidth = width - plotLeft;
 
