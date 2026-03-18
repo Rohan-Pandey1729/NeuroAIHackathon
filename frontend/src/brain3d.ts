@@ -363,7 +363,7 @@ gl_FragColor.a = mix(gl_FragColor.a, 0.8, regionAlpha);`
     ctx.fillText(text, 64, 32);
 
     const texture = new THREE.CanvasTexture(canvas);
-    const mat = new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: 0.9, depthTest: false });
+    const mat = new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: 0.9, depthTest: true });
     const sprite = new THREE.Sprite(mat);
     sprite.renderOrder = 2;
     sprite.scale.set(0.15, 0.075, 1);
