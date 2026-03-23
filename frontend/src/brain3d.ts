@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // ── International 10-20 electrode positions (unit sphere directions) ────
@@ -173,7 +174,10 @@ export class BrainScene {
   };
 
   private loadBrain(): void {
+    const dracoLoader = new DRACOLoader();
+    dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.7/');
     const loader = new GLTFLoader();
+    loader.setDRACOLoader(dracoLoader);
     loader.load(import.meta.env.BASE_URL + 'brain.glb', (gltf) => {
       const model = gltf.scene;
 
